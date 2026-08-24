@@ -16,7 +16,12 @@ public final class Ledger {
 
     /** Handles the event, verifies it balances, and applies it. */
     public Transaction record(LedgerEvent event) {
-        throw new UnsupportedOperationException("not implemented");
+        Transaction transaction = handler.toTransaction(event, state);
+        // The builder already checked. Checked again here because this is the boundary
+        // that guarantees it, and a boundary that trusts its callers is not a boundary.
+        BalanceChecker.requireBalanced(transaction);
+        state.apply(transaction);
+        return transaction;
     }
 
     public LedgerState state() {

@@ -4,6 +4,7 @@ import com.basis.domain.Money;
 import com.basis.domain.Posting;
 import com.basis.domain.Transaction;
 import java.util.Currency;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -25,20 +26,43 @@ public final class BalanceChecker {
 
     /** Net weight per currency across the given postings. Zero entries are included. */
     public static Map<Currency, Money> residuals(List<Posting> postings) {
-        throw new UnsupportedOperationException("not implemented");
+        Map<Currency, Money> byCurrency = new LinkedHashMap<>();
+        for (Posting posting : postings) {
+            Money weight = posting.weight();
+            byCurrency.merge(weight.currency(), weight, Money::plus);
+        }
+        return byCurrency;
     }
 
     /** The net weight in one currency, zero if that currency does not appear. */
     public static Money residual(List<Posting> postings, Currency currency) {
-        throw new UnsupportedOperationException("not implemented");
+        Money total = Money.zero(currency);
+        for (Posting posting : postings) {
+            Money weight = posting.weight();
+            if (weight.currency().equals(currency)) {
+                total = total.plus(weight);
+            }
+        }
+        return total;
     }
 
     public static boolean isBalanced(List<Posting> postings) {
-        throw new UnsupportedOperationException("not implemented");
+        for (Money residual : residuals(postings).values()) {
+            if (!residual.isZero()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** @throws UnbalancedTransactionException if any currency's weights do not sum to zero */
     public static void requireBalanced(Transaction transaction) {
-        throw new UnsupportedOperationException("not implemented");
+        Map<Currency, Money> residuals = residuals(transaction.postings());
+        for (Money residual : residuals.values()) {
+            if (!residual.isZero()) {
+                throw UnbalancedTransactionException.of(
+                        transaction.eventType() + " on " + transaction.date(), residuals);
+            }
+        }
     }
 }

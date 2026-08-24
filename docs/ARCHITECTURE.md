@@ -226,3 +226,34 @@ reasons unrelated to its own data.
 The cost of (b) is that the column could drift from the code. That is what the
 `weight_minor` reconciliation in the persistence tests is for: every posting read
 back is checked against a freshly computed `Posting.weight()`.
+
+## 14. A zero plug is omitted, unless it is the only thing stating the other side
+
+Found by the generated histories rather than by design, which is the argument for
+generating them.
+
+A plug posting of zero is normally dropped, so that a sale at exactly its cost
+basis has no `Income:CapitalGains:Realized` leg instead of a `0.00` one. That rule
+is right until it is the only rule. A purchase of `0.00000001` shares at a unit
+price of `0.000001` has a total consideration of `0.00000000000001`, which is zero
+in whole cents. Its commission is zero too, so the transaction is a single share
+posting weighing nothing, and a single posting is not a double entry.
+
+Options:
+
+- **(a) Always emit the plug.** Every transaction has both sides, at the cost of a
+  `0.00` gain leg on every sale that happens to break even.
+- **(b) Reject the event.** An acquisition whose consideration rounds to nothing
+  cannot be represented, so refuse it at the boundary.
+- **(c) Emit the zero plug only when the transaction would otherwise have fewer
+  than two postings.**
+
+Picked **(c)**. It keeps the clean output of (a) without its noise, and it avoids
+(b)'s real problem: an acquisition genuinely can cost nothing. A gift, an
+inherited position, a promotional share grant and the receiving side of a spin off
+are all zero consideration acquisitions that a broker will report and that the
+week 3 corporate action work has to be able to record. Refusing them to avoid a
+rounding edge case would be trading a cosmetic problem for a correctness one.
+
+Stated as a rule: a transaction always states both sides. The plug is omitted only
+when the transaction already states both sides without it.
