@@ -113,27 +113,44 @@ public final class Reconciler {
         }
         Ratio found = ratio.get();
         LocalDate from = earliestAcquisition(state, key).orElse(asOf);
+        SplitCoverage coverage = splits.coverageBetween(key.commodity(), from, asOf);
+        String splitKind = found.isIncrease() ? "split" : "reverse split";
+        String code = found.isIncrease()
+                ? ProbableCause.UNAPPLIED_SPLIT
+                : ProbableCause.UNAPPLIED_REVERSE_SPLIT;
 
-        for (KnownSplit split : splits.splitsBetween(key.commodity(), from, asOf)) {
-            if (split.matches(found)) {
-                return ProbableCause.confirmed(
-                        found.isIncrease() ? ProbableCause.UNAPPLIED_SPLIT : ProbableCause.UNAPPLIED_REVERSE_SPLIT,
-                        "The broker reports " + found + " of what basis computed, and " + key.commodity()
-                                + " had a " + split.ratio() + " split effective " + split.date()
-                                + " that this history never applied.",
-                        "Apply the " + split.ratio() + " split of " + key.commodity() + " dated "
-                                + split.date() + " and reconcile again.");
-            }
+        Optional<KnownSplit> match = coverage.matching(found);
+        if (match.isPresent()) {
+            KnownSplit split = match.get();
+            return ProbableCause.confirmed(code,
+                    "The broker reports " + found + " of what basis computed, and " + key.commodity()
+                            + " had a " + split.ratio() + " split effective " + split.date()
+                            + " that this history never applied.",
+                    "Apply the " + split.ratio() + " split of " + key.commodity() + " dated "
+                            + split.date() + " and reconcile again.");
         }
 
-        return ProbableCause.suspected(
-                found.isIncrease() ? ProbableCause.UNAPPLIED_SPLIT : ProbableCause.UNAPPLIED_REVERSE_SPLIT,
+        // Asked and answered. An empty split history from a provider that responded is
+        // evidence, and it points away from a corporate action rather than towards one.
+        if (coverage.isAuthoritative()) {
+            return ProbableCause.suspected(ProbableCause.RATIO_WITHOUT_KNOWN_SPLIT,
+                    "The broker reports " + found + " of what basis computed, which is the shape of an"
+                            + " unapplied " + splitKind + ", but the split history for " + key.commodity()
+                            + " was confirmed on " + coverage.checkedAt() + " and contains no such split"
+                            + " between " + from + " and " + asOf + ". The ratio is a coincidence.",
+                    "Treat this as missing trades rather than a corporate action, and look for activity"
+                            + " the imported history does not contain.");
+        }
+
+        String why = coverage.status() == CoverageStatus.CHECK_FAILED
+                ? "the last attempt to fetch it failed (" + coverage.detail() + ")"
+                : "it has never been fetched";
+        return ProbableCause.suspected(code,
                 "The broker reports " + found + " of what basis computed, which is the shape of an unapplied "
-                        + (found.isIncrease() ? "split" : "reverse split")
-                        + ". No split of " + key.commodity() + " is on record between " + from + " and " + asOf
+                        + splitKind + ". The split history for " + key.commodity()
+                        + " cannot confirm or rule that out because " + why
                         + ", so this is arithmetic and not evidence.",
-                "Check " + key.commodity() + " for a corporate action in that window, then refresh the"
-                        + " reference data and reconcile again.");
+                "Refresh the reference data for " + key.commodity() + " and reconcile again.");
     }
 
     private ProbableCause missingActivity(PositionKey key, Quantity broker, Quantity computed) {

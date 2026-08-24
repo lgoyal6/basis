@@ -15,6 +15,23 @@ spring:
     clean-disabled: true
     baseline-on-migrate: false
 
+# Market data provider. The key comes from the environment and is never committed.
+#
+# Note that Spring does not read the .env file in this repository: that file exists for
+# the week 0 probe. Export it before running, for example:
+#   set -a; source .env; set +a
+basis:
+  fmp:
+    base-url: https://financialmodelingprep.com/stable
+    key: ${FMP_KEY:}
+    # Off by default so nothing reaches the network unless someone asks for it.
+    enabled: ${BASIS_FMP_ENABLED:false}
+    timeout: 20s
+    refresh-after: 7d
+    # A ceiling this application imposes, not one the provider communicates: it returns
+    # no rate limit headers. See docs/FEASIBILITY.md.
+    daily-request-budget: 50
+
 logging:
   level:
     com.basis: INFO

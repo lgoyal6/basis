@@ -20,6 +20,14 @@ public record ProbableCause(String code, String explanation, String suggestedAct
     public static final String UNEXPLAINED = "UNEXPLAINED";
     public static final String UNAPPLIED_SPLIT = "UNAPPLIED_SPLIT";
     public static final String UNAPPLIED_REVERSE_SPLIT = "UNAPPLIED_REVERSE_SPLIT";
+
+    /**
+     * The counts differ by a corporate action shaped ratio, and the reference data was
+     * asked and knows of no such split. A distinct code from the unapplied split ones,
+     * because grouping it with them would hide the most interesting breaks basis produces:
+     * the ones that look exactly like a split and provably are not.
+     */
+    public static final String RATIO_WITHOUT_KNOWN_SPLIT = "RATIO_WITHOUT_KNOWN_SPLIT";
     public static final String MISSING_ACQUISITION = "MISSING_ACQUISITION";
     public static final String MISSING_DISPOSAL = "MISSING_DISPOSAL";
     public static final String UNKNOWN_HOLDING = "UNKNOWN_HOLDING";

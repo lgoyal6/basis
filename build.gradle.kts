@@ -51,6 +51,13 @@ tasks.withType<Test>().configureEach {
             ?.map(String::trim)
             ?.filter(String::isNotEmpty)
             .orEmpty()
+            .toMutableList()
+        // Tests that call the market data provider are off unless asked for with
+        // -PwithNetwork. They spend real quota and they fail when someone is offline,
+        // neither of which should happen on an ordinary run.
+        if (!project.hasProperty("withNetwork")) {
+            excluded += "network"
+        }
         if (excluded.isNotEmpty()) {
             excludeTags(*excluded.toTypedArray())
         }

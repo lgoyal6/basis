@@ -64,6 +64,8 @@ class ReconciliationPersistenceTest {
     void clean() {
         db.sql("DELETE FROM break_record").update();
         db.sql("DELETE FROM reference_data").update();
+        db.sql("DELETE FROM reference_data_fetch").update();
+        db.sql("DELETE FROM position").update();
     }
 
     @Test
@@ -156,7 +158,7 @@ class ReconciliationPersistenceTest {
     void referenceDataRoundTrips() {
         referenceData.cacheSplit("AAPL", SPLIT_DATE, 4, 1, "fmp");
 
-        List<KnownSplit> splits = referenceData.splitsBetween(AAPL, JAN_15, AS_OF);
+        List<KnownSplit> splits = referenceData.coverageBetween(AAPL, JAN_15, AS_OF).splits();
 
         assertThat(splits).singleElement().satisfies(split -> {
             assertThat(split.numerator()).isEqualTo(4);
@@ -165,7 +167,7 @@ class ReconciliationPersistenceTest {
             assertThat(split.commodity()).isEqualTo(AAPL);
             assertThat(split.fetchedAt()).isAfter(Instant.EPOCH);
         });
-        assertThat(referenceData.lastFetched("AAPL")).isNotNull();
+        assertThat(referenceData.lastSuccessfulFetch("AAPL")).isNotNull();
     }
 
     @Test
@@ -183,7 +185,7 @@ class ReconciliationPersistenceTest {
         referenceData.cacheSplit("AAPL", SPLIT_DATE, 2, 1, "fmp");
         referenceData.cacheSplit("AAPL", SPLIT_DATE, 4, 1, "fmp");
 
-        assertThat(referenceData.splitsBetween(AAPL, JAN_15, AS_OF))
+        assertThat(referenceData.coverageBetween(AAPL, JAN_15, AS_OF).splits())
                 .singleElement()
                 .satisfies(split -> assertThat(split.numerator()).isEqualTo(4));
     }
@@ -193,12 +195,12 @@ class ReconciliationPersistenceTest {
     void windowIsRespected() {
         referenceData.cacheSplit("AAPL", SPLIT_DATE, 4, 1, "fmp");
 
-        assertThat(referenceData.splitsBetween(AAPL, SPLIT_DATE.plusDays(1), AS_OF)).isEmpty();
-        assertThat(referenceData.splitsBetween(AAPL, JAN_15, SPLIT_DATE.minusDays(1))).isEmpty();
-        assertThat(referenceData.splitsBetween(AAPL, SPLIT_DATE, SPLIT_DATE))
+        assertThat(referenceData.coverageBetween(AAPL, SPLIT_DATE.plusDays(1), AS_OF).splits()).isEmpty();
+        assertThat(referenceData.coverageBetween(AAPL, JAN_15, SPLIT_DATE.minusDays(1)).splits()).isEmpty();
+        assertThat(referenceData.coverageBetween(AAPL, SPLIT_DATE, SPLIT_DATE).splits())
                 .as("the range is closed at both ends")
                 .hasSize(1);
-        assertThat(referenceData.splitsBetween(AAPL, AS_OF, JAN_15))
+        assertThat(referenceData.coverageBetween(AAPL, AS_OF, JAN_15).splits())
                 .as("an inverted window asks for nothing rather than erroring")
                 .isEmpty();
     }

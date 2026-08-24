@@ -2,21 +2,25 @@ package com.basis.reconcile;
 
 import com.basis.domain.Commodity;
 import java.time.LocalDate;
-import java.util.List;
 
 /**
- * What corporate actions the reference data knows about for a security.
+ * What the reference data knows about a security's splits, and whether it knows anything.
  *
- * <p>An interface with an empty default, so reconciliation degrades rather than fails when
- * no reference data has been fetched. Without it a break says "this looks like a 4 for 1
- * ratio"; with it the same break says "there is a 4 for 1 split on 2020-08-31". Both are
- * useful, and the difference is exactly the difference between a suspicion and a finding.
+ * <p>Returns {@link SplitCoverage} rather than a bare list because an empty list is
+ * ambiguous in a way that matters. "We asked the provider and this security had no splits"
+ * rules a corporate action out. "Nobody has asked" rules nothing out and is a reason to go
+ * and fetch. Handing both back as an empty list forces the reconciler to guess which one it
+ * is holding, and it will guess wrong half the time.
  */
 public interface SplitCalendar {
 
-    /** Knows nothing. What reconciliation uses before any reference data has been fetched. */
-    SplitCalendar EMPTY = (commodity, from, to) -> List.of();
+    /**
+     * Knows nothing and says so. What reconciliation uses before any reference data has
+     * been fetched, and what makes {@code Reconciler.withoutReferenceData()} honest rather
+     * than merely empty.
+     */
+    SplitCalendar EMPTY = (commodity, from, to) -> SplitCoverage.neverChecked();
 
-    /** Splits for the commodity with an effective date in the closed range, oldest first. */
-    List<KnownSplit> splitsBetween(Commodity commodity, LocalDate from, LocalDate to);
+    /** Coverage for the commodity over the closed date range. */
+    SplitCoverage coverageBetween(Commodity commodity, LocalDate from, LocalDate to);
 }

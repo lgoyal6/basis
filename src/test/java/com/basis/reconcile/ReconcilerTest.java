@@ -47,6 +47,10 @@ class ReconcilerTest {
             assertThat(found.quantityDifference()).isEqualTo(qty("30"));
             assertThat(found.cause().code()).isEqualTo(ProbableCause.UNAPPLIED_SPLIT);
             assertThat(found.cause().explanation()).contains("4 for 1");
+            assertThat(found.cause().explanation())
+                    .as("says why it cannot tell, rather than implying it checked")
+                    .contains("never been fetched");
+            assertThat(found.cause().suggestedAction()).contains("Refresh the reference data");
             assertThat(found.cause().confident())
                     .as("nothing corroborates the arithmetic yet, so this is a suspicion")
                     .isFalse();
@@ -84,9 +88,14 @@ class ReconcilerTest {
         List<BreakRecord> breaks = new Reconciler(calendar)
                 .reconcile(ledger.state(), snapshot(BrokerPositions.held(IBKR, AAPL, qty("40"))));
 
-        assertThat(breaks).singleElement().satisfies(found -> assertThat(found.cause().confident())
-                .as("a 2 for 1 on record does not explain a 4 for 1 gap")
-                .isFalse());
+        assertThat(breaks).singleElement().satisfies(found -> {
+            assertThat(found.cause().confident())
+                    .as("a 2 for 1 on record does not explain a 4 for 1 gap")
+                    .isFalse();
+            assertThat(found.cause().code())
+                    .as("the provider answered, so the ratio is provably not a split")
+                    .isEqualTo(ProbableCause.RATIO_WITHOUT_KNOWN_SPLIT);
+        });
     }
 
     @Test
@@ -100,9 +109,12 @@ class ReconcilerTest {
         List<BreakRecord> breaks = new Reconciler(calendar)
                 .reconcile(ledger.state(), snapshot(BrokerPositions.held(IBKR, AAPL, qty("40"))));
 
-        assertThat(breaks).singleElement().satisfies(found -> assertThat(found.cause().confident())
-                .as("a split from before the shares were bought cannot be the unapplied one")
-                .isFalse());
+        assertThat(breaks).singleElement().satisfies(found -> {
+            assertThat(found.cause().confident())
+                    .as("a split from before the shares were bought cannot be the unapplied one")
+                    .isFalse();
+            assertThat(found.cause().code()).isEqualTo(ProbableCause.RATIO_WITHOUT_KNOWN_SPLIT);
+        });
     }
 
     @Test
@@ -292,15 +304,72 @@ class ReconcilerTest {
                 .isEmpty();
     }
 
+    @Test
+    @DisplayName("a provider that answered and found nothing rules the split out, rather than staying silent")
+    void anAnsweredEmptyCalendarIsEvidence() {
+        Ledger ledger = new Ledger();
+        ledger.record(buy(JAN_15, "b1", AAPL, "10", "150.00", "0.00"));
+        SplitCalendar answeredWithNothing = calendarWith();
+
+        List<BreakRecord> breaks = new Reconciler(answeredWithNothing)
+                .reconcile(ledger.state(), snapshot(BrokerPositions.held(IBKR, AAPL, qty("40"))));
+
+        assertThat(breaks).singleElement().satisfies(found -> {
+            assertThat(found.cause().code()).isEqualTo(ProbableCause.RATIO_WITHOUT_KNOWN_SPLIT);
+            assertThat(found.cause().explanation())
+                    .contains("was confirmed on")
+                    .contains("The ratio is a coincidence");
+            assertThat(found.cause().suggestedAction())
+                    .as("points at missing trades, not at fetching data that has already been fetched")
+                    .contains("missing trades");
+        });
+    }
+
+    @Test
+    @DisplayName("a provider that could not be reached says so, and does not rule anything out")
+    void aFailedCheckIsNotEvidence() {
+        Ledger ledger = new Ledger();
+        ledger.record(buy(JAN_15, "b1", AAPL, "10", "150.00", "0.00"));
+        SplitCalendar refused = (commodity, from, to) ->
+                SplitCoverage.checkFailed("NOT_AVAILABLE [HTTP 402]", Instant.parse("2026-03-30T00:00:00Z"));
+
+        List<BreakRecord> breaks = new Reconciler(refused)
+                .reconcile(ledger.state(), snapshot(BrokerPositions.held(IBKR, AAPL, qty("40"))));
+
+        assertThat(breaks).singleElement().satisfies(found -> {
+            assertThat(found.cause().code())
+                    .as("a failed check cannot rule a split out, so the suspicion stands")
+                    .isEqualTo(ProbableCause.UNAPPLIED_SPLIT);
+            assertThat(found.cause().confident()).isFalse();
+            assertThat(found.cause().explanation())
+                    .contains("the last attempt to fetch it failed")
+                    .contains("HTTP 402");
+        });
+    }
+
+    @Test
+    @DisplayName("coverage that never checked cannot pretend to carry splits")
+    void unavailableCoverageCannotCarrySplits() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new SplitCoverage(
+                CoverageStatus.NEVER_CHECKED,
+                List.of(new KnownSplit(AAPL, LocalDate.of(2026, 2, 20), 4, 1, Instant.EPOCH)),
+                null, ""))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cannot carry splits");
+    }
+
     private static BrokerSnapshot snapshot(BrokerPosition... positions) {
         return BrokerSnapshot.ofSecurities(IBKR, AS_OF, List.of(positions));
     }
 
+    /** A calendar that answered, and knows about these splits. */
     private static SplitCalendar calendarWith(KnownSplit... known) {
-        return (commodity, from, to) -> List.of(known).stream()
-                .filter(split -> split.commodity().equals(commodity))
-                .filter(split -> !split.date().isBefore(from) && !split.date().isAfter(to))
-                .toList();
+        return (commodity, from, to) -> SplitCoverage.checked(
+                List.of(known).stream()
+                        .filter(split -> split.commodity().equals(commodity))
+                        .filter(split -> !split.date().isBefore(from) && !split.date().isAfter(to))
+                        .toList(),
+                Instant.parse("2026-03-30T00:00:00Z"));
     }
 
     @Test
