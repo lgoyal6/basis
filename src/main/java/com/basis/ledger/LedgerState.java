@@ -110,12 +110,14 @@ public final class LedgerState implements LotBook {
      * disposal legs, and the proceeds are everything else, which for a sale is the cash
      * leg plus the expensed commission. Three numbers from three different subsets of the
      * postings, so the identity between them is a real statement.
+     *
+     * <p>Not every disposal realizes anything. See {@link #isSettled(List)}.
      */
     private void recordRealizedGain(TxnId txnId, LocalDate date, List<Posting> postings) {
         List<Posting> disposals = postings.stream()
                 .filter(LedgerState::isDisposal)
                 .toList();
-        if (disposals.isEmpty()) {
+        if (disposals.isEmpty() || !isSettled(postings)) {
             return;
         }
 
@@ -152,6 +154,37 @@ public final class LedgerState implements LotBook {
 
     private static boolean isDisposal(Posting posting) {
         return posting.hasCost() && posting.quantity().isNegative();
+    }
+
+    /**
+     * Whether a disposal was settled, and therefore realized something.
+     *
+     * <p>A disposal only realizes a gain when it was settled: paid for in cash, or booked
+     * against the realized gain account. A transaction that moves shares out of one
+     * account and into another disposes of lots without settling anything, and reporting
+     * a realized gain for it would invent a taxable event out of paperwork.
+     *
+     * <p>Stated in terms of postings rather than event types, because the projector rebuilds
+     * this from the posting table where no event survives. It generalises correctly to the
+     * corporate actions in week 3: a split settles nothing and realizes nothing, while a
+     * reverse split that pays cash in lieu of a fractional share settles that fraction in
+     * cash and does realize a gain on it, which is exactly the treatment the IRS expects
+     * and exactly the one a broker statement tends not to spell out.
+     *
+     * <p>A realized gain leg counts as settlement too, and is a cash posting like any
+     * other because income is booked in a currency. That matters for a disposal whose
+     * proceeds round to nothing in whole minor units: it still books a loss equal to its
+     * basis, and it still has to be reported.
+     *
+     * <p>Known limit. The rule is "cash moved", which is exact for every event that exists
+     * today, because no securities transfer carries a fee and no corporate action is
+     * handled yet. Week 3 has to sharpen it in two places: a reverse split paying cash in
+     * lieu of a fraction settles only that fraction and not the whole position, and a
+     * transfer that charges a fee would move cash without settling anything. See
+     * docs/ARCHITECTURE.md section 16.
+     */
+    private static boolean isSettled(List<Posting> postings) {
+        return postings.stream().anyMatch(Posting::isCash);
     }
 
     @Override
