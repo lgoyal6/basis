@@ -14,9 +14,16 @@ Instead of "you have 30 fewer shares than expected", you get "that is a 4-to-1 r
 
 ## Status
 
-Week 1. Ledger core: multi-commodity double-entry postings, lot-level cost basis,
-FIFO/LIFO/HIFO/specific-lot selection, and the seven invariants that hold it
-together. No parsers, no web layer, no corporate actions yet.
+Week 2. Ledger core plus cash distributions and movement between accounts.
+
+- Multi-commodity double-entry postings, lot-level cost basis, and
+  FIFO/LIFO/HIFO/specific-lot selection
+- Buys, sells, fees, opening balances, cash dividends with withholding, and
+  transfers that carry their lots so the holding period does not restart
+- The seven invariants that hold it together, asserted over generated histories
+  after every step
+
+No parsers, no web layer, no corporate actions yet.
 
 See `docs/FEASIBILITY.md` for the week 0 feasibility gate and
 `docs/ARCHITECTURE.md` for every design decision and why it was taken.

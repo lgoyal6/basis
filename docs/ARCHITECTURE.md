@@ -318,3 +318,83 @@ field whose only job is to absorb rounding residue.
 Week 3 should revisit this. Corporate actions restate unit costs across every open
 lot of a position, and a split that has to preserve total basis exactly is the
 first thing that will care about the residue above.
+
+## 16. A disposal realizes a gain only when it was settled
+
+Week 1 recorded a realized gain for every transaction containing a negative
+security posting. Week 2 broke that, and correctly: a securities transfer disposes
+of lots in one account and opens them in another, and reporting a realized gain
+for it would invent a taxable event out of paperwork.
+
+Options:
+
+- **(a) Decide by event type.** The `Sell` handler records a gain, the `Transfer`
+  handler does not.
+- **(b) Decide from the postings.** A disposal realizes something only when the
+  transaction also moved cash.
+- **(c) Decide by whether the same commodity is re-acquired.** A transaction that
+  both disposes of and acquires AAPL has reallocated it, not sold it.
+
+Picked **(b)**. (a) is impossible: the projector rebuilds derived state from the
+`posting` table, where no event survives, so a rule it cannot express is a rule
+that makes replay disagree with the live ledger. Between (b) and (c), (b) is the
+one that generalises: a reverse split paying cash in lieu of a fractional share
+re-acquires the same commodity, so (c) would call it non-taxable, and it is
+taxable on exactly the fraction that was paid out.
+
+The rule is therefore: a disposal realizes a gain when the transaction contains a
+cash posting. A realized gain leg counts, being a currency posting like any other,
+which matters for a disposal whose proceeds round to nothing in whole minor units
+but which still books a loss equal to its basis.
+
+Known limit, recorded rather than papered over. "Cash moved" is exact for every
+event that exists today because no securities transfer carries a fee. Week 3 has
+to sharpen it twice: cash in lieu settles only the fraction rather than the whole
+position, and a transfer that charges a fee would move cash without settling
+anything.
+
+## 17. A securities transfer carries its lots, with new identifiers
+
+A transfer emits two postings per lot moved: one disposing of it in the sending
+account, one opening it in the receiving account at the same unit cost and the
+same acquisition date. Both weigh identically at cost, so the transaction balances
+with no plug and no gain.
+
+The acquisition date is the whole point. If the receiving lot were dated the day
+of the transfer, the holding period would restart and every later disposal would
+report a short term gain that was actually long term. That is why `Transfer` was
+never a week 1 event despite looking like the simplest one in the list.
+
+The receiving lot needs its own identifier, because a lot is opened by exactly one
+acquisition and the outgoing lot still exists in the sending account's history.
+It is derived by hashing the event's idempotency key together with the source lot
+id, which keeps it stable across replays, fixed in length however many times a
+position moves, and traceable back to where it came from. Concatenating instead of
+hashing would grow the identifier without bound across repeated transfers.
+
+Two smaller decisions:
+
+- **The lot selection method is stated on the event**, not defaulted inside the
+  handler. Which lots leave an account changes every gain later computed in both
+  accounts, and a choice that matters that much belongs in the record that gets
+  replayed rather than in a line of code someone can change. Specific lot is
+  rejected: the event has nowhere to name lots.
+- **Cash always lives at `<account>:Cash`.** A bank deposit is then just a
+  transfer from `Assets:Bank:Chase` to `Assets:Broker:IBKR`, with no separate
+  concept of an external account and no special case in the handler.
+
+## 18. A dividend books gross income and withholding separately
+
+`Income:Dividends:<SYMBOL>` takes the gross, `Expenses:Taxes:Withholding` takes
+what was withheld at source, and the net is the cash plug. Netting them into a
+single income leg would be smaller and would lose the thing a reconciliation needs
+most: the reason the cash a broker paid is smaller than the dividend the issuer
+declared.
+
+Income is booked per commodity for the same reason. "You received 340.00 in
+dividends" is not something anyone can argue with a broker about. "You received
+12.00 from KO on this date" is.
+
+Withholding is an expense rather than a prepaid tax asset. basis is not a tax
+product, so it has nowhere to eventually apply a credit from, and calling withheld
+tax an asset would imply a recoverability this ledger has no way to assess.
