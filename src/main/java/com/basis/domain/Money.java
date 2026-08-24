@@ -78,10 +78,6 @@ public record Money(long minorUnits, Currency currency) implements Comparable<Mo
         return new Money(Math.negateExact(minorUnits), currency);
     }
 
-    public Money abs() {
-        return minorUnits < 0 ? negate() : this;
-    }
-
     public boolean isZero() {
         return minorUnits == 0L;
     }

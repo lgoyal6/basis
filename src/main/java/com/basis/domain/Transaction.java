@@ -43,16 +43,6 @@ public record Transaction(
         }
     }
 
-    /** Postings that move a security, in declared order. */
-    public List<Posting> securityPostings() {
-        return postings.stream().filter(Posting::hasCost).toList();
-    }
-
-    /** Postings that move cash, in declared order. */
-    public List<Posting> cashPostings() {
-        return postings.stream().filter(Posting::isCash).toList();
-    }
-
     @Override
     public String toString() {
         StringBuilder out = new StringBuilder(date + " " + eventType + " \"" + narration + "\"");

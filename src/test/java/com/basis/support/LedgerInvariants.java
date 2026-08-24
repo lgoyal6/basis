@@ -14,7 +14,6 @@ import com.basis.ledger.BalanceChecker;
 import com.basis.ledger.LedgerState;
 import com.basis.ledger.PositionKey;
 import com.basis.ledger.RealizedGain;
-import java.util.ArrayList;
 import java.util.Currency;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -99,20 +98,37 @@ public final class LedgerInvariants {
                 .containsAll(acquired.keySet());
     }
 
-    /** Invariant 3: a holding's quantity equals the sum of its open lots' quantities. */
+    /**
+     * Invariant 3: a holding's quantity equals the sum of its open lots' quantities.
+     *
+     * <p>Checked in both directions. A position that reaches zero is dropped rather than
+     * kept as a zero row, so walking positions alone would miss the failure that matters
+     * most: a lot still holding shares after the position it belongs to has disappeared.
+     */
     public static void assertPositionsMatchOpenLots(LedgerState state) {
-        for (Map.Entry<PositionKey, Quantity> entry : state.positions().entrySet()) {
-            PositionKey key = entry.getKey();
-            if (key.commodity().isCash()) {
+        Map<PositionKey, Quantity> fromLots = new HashMap<>();
+        for (Lot lot : state.allLots()) {
+            if (!lot.isOpen()) {
                 continue;
             }
-            Quantity fromLots = Quantity.ZERO;
-            for (Lot lot : state.openLots(key.account(), key.commodity())) {
-                fromLots = fromLots.plus(lot.remainingQuantity());
+            fromLots.merge(new PositionKey(lot.account(), lot.commodity()),
+                    lot.remainingQuantity(), Quantity::plus);
+        }
+
+        for (Map.Entry<PositionKey, Quantity> entry : state.positions().entrySet()) {
+            if (entry.getKey().commodity().isCash()) {
+                continue;
             }
             assertThat(entry.getValue())
-                    .as("invariant 3, position %s equals the sum of its open lots", key)
-                    .isEqualTo(fromLots);
+                    .as("invariant 3, position %s equals the sum of its open lots", entry.getKey())
+                    .isEqualTo(fromLots.getOrDefault(entry.getKey(), Quantity.ZERO));
+        }
+
+        for (Map.Entry<PositionKey, Quantity> entry : fromLots.entrySet()) {
+            assertThat(state.position(entry.getKey().account(), entry.getKey().commodity()))
+                    .as("invariant 3, open lots in %s are matched by a position of the same size",
+                            entry.getKey())
+                    .isEqualTo(entry.getValue());
         }
     }
 
@@ -162,10 +178,5 @@ public final class LedgerInvariants {
         assertThat(state.position(cashAccount, Commodity.of(expected.currency())).value())
                 .as("invariant 6, the cash position agrees with the cash balance")
                 .isEqualByComparingTo(expected.toMajorUnits());
-    }
-
-    /** Every realized gain recorded, newest last. */
-    public static List<RealizedGain> gains(LedgerState state) {
-        return new ArrayList<>(state.realizedGains());
     }
 }

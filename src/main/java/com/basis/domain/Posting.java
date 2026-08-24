@@ -2,7 +2,6 @@ package com.basis.domain;
 
 import java.util.Currency;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * One leg of a transaction: an account, a commodity, a signed quantity, and for a
@@ -37,10 +36,6 @@ public record Posting(Account account, Commodity commodity, Quantity quantity, C
         return new Posting(account, commodity, quantity, cost);
     }
 
-    public Optional<Cost> costIfPresent() {
-        return Optional.ofNullable(cost);
-    }
-
     public boolean hasCost() {
         return cost != null;
     }
@@ -67,10 +62,6 @@ public record Posting(Account account, Commodity commodity, Quantity quantity, C
         }
         // A cash leg weighs exactly its own amount. Inexact cash is rejected, not rounded.
         return Money.of(quantity.value(), commodity.asCurrency());
-    }
-
-    public Posting negate() {
-        return new Posting(account, commodity, quantity.negate(), cost);
     }
 
     @Override

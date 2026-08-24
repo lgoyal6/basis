@@ -1,7 +1,6 @@
 package com.basis.domain;
 
 import java.math.BigDecimal;
-import java.math.MathContext;
 import java.math.RoundingMode;
 import java.util.Objects;
 
@@ -49,10 +48,6 @@ public record Quantity(BigDecimal value) implements Comparable<Quantity> {
         return new Quantity(value.negate());
     }
 
-    public Quantity abs() {
-        return new Quantity(value.abs());
-    }
-
     /** Exact product with a price, at full precision. Rounding to money happens once, in {@link Posting}. */
     public BigDecimal multiplyBy(Price price) {
         return value.multiply(price.value());
@@ -60,15 +55,6 @@ public record Quantity(BigDecimal value) implements Comparable<Quantity> {
 
     public Quantity multiplyBy(BigDecimal factor) {
         return new Quantity(value.multiply(factor));
-    }
-
-    public Quantity divideBy(BigDecimal divisor) {
-        return new Quantity(value.divide(divisor, SCALE, ROUNDING));
-    }
-
-    /** Unit cost implied by spreading {@code total} across this quantity. */
-    public BigDecimal unitShareOf(BigDecimal total) {
-        return total.divide(value, MathContext.DECIMAL128);
     }
 
     public boolean isZero() {
@@ -81,10 +67,6 @@ public record Quantity(BigDecimal value) implements Comparable<Quantity> {
 
     public boolean isNegative() {
         return value.signum() < 0;
-    }
-
-    public int signum() {
-        return value.signum();
     }
 
     @Override

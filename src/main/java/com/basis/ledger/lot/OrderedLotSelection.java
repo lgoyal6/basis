@@ -23,10 +23,7 @@ abstract class OrderedLotSelection implements LotSelectionStrategy {
                 .sorted(order(request))
                 .toList();
 
-        Quantity available = Quantity.ZERO;
-        for (Lot lot : candidates) {
-            available = available.plus(lot.remainingQuantity());
-        }
+        Quantity available = request.availableQuantity();
         if (request.quantity().compareTo(available) > 0) {
             throw InsufficientLotsException.of(
                     request.account(), request.commodity(), request.quantity(), available);

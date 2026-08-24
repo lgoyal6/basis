@@ -61,10 +61,6 @@ public record Lot(
         return remainingQuantity.isPositive();
     }
 
-    public boolean isClosed() {
-        return remainingQuantity.isZero();
-    }
-
     /** Disposes {@code quantity} from this lot. Throws rather than going short. */
     public Lot consume(Quantity quantity) {
         if (!quantity.isPositive()) {

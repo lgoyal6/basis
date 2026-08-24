@@ -27,8 +27,4 @@ public final class Ledger {
     public LedgerState state() {
         return state;
     }
-
-    LedgerEventHandler handler() {
-        return handler;
-    }
 }

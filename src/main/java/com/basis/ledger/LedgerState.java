@@ -201,11 +201,4 @@ public final class LedgerState implements LotBook {
         }
         return total;
     }
-
-    /** Drops everything. Used before a replay. */
-    public void clear() {
-        positions.clear();
-        lots.clear();
-        realizedGains.clear();
-    }
 }
