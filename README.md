@@ -68,6 +68,48 @@ them with `./gradlew test -PwithNetwork` and a key in the environment.
 See `docs/FEASIBILITY.md` for the week 0 feasibility gate and
 `docs/ARCHITECTURE.md` for every design decision and why it was taken.
 
+### Running it
+
+Needs JDK 21 and a Postgres 16. Build a jar and ask it what it does:
+
+```
+./gradlew bootJar
+java -jar build/libs/basis.jar --help
+```
+
+Point it at a database and reconcile a position snapshot against the ledger:
+
+```
+export BASIS_DB_URL=jdbc:postgresql://localhost:5432/basis
+export BASIS_DB_USER=basis BASIS_DB_PASSWORD=basis
+
+java -jar build/libs/basis.jar status
+java -jar build/libs/basis.jar reconcile Assets:Broker:IBKR positions.csv --as-of 2026-03-31
+java -jar build/libs/basis.jar breaks Assets:Broker:IBKR
+java -jar build/libs/basis.jar settle 1 --accept --note "applied the split"
+```
+
+Exit codes: `0` ok, `1` failed, `2` bad usage, `3` reconcile found breaks. The last
+one is deliberately not a failure, so a pipeline can act on a disagreement.
+
+The snapshot is basis's own format, not a broker's, since the statement parsers do
+not exist yet:
+
+```
+symbol,quantity,cost_basis,kind
+AAPL,40,,EQUITY
+MSFT,10,3000.00,EQUITY
+USD,1520.55,,CURRENCY      # only with --with-cash
+```
+
+`cost_basis` is optional, because most statements report a quantity and a market
+value and nothing else. Whether the file covers cash is stated with `--with-cash`
+rather than guessed, because an omitted cash line means "the statement did not say"
+on most reports and "the balance is zero" on some.
+
+Ticker renames live in `config/symbol-changes.csv`, maintained by hand because the
+provider's symbol change endpoint is paywalled.
+
 ### Building
 
 Needs JDK 21 and Docker (Testcontainers spins up Postgres 16 for the persistence

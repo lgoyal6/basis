@@ -710,3 +710,82 @@ from the live provider, against a real Postgres, with no socket. Two tests tagge
 do call out: one contract test checking the provider has not changed shape, and one full
 loop that fetches Apple's real split history and watches a break go from suspicion to a
 finding naming 2020-08-31. Both are excluded from every default run and need `-PwithNetwork`.
+
+## 23. A command line, and the ticker rename file it depends on
+
+### The rename file existed as a promise before it existed as a file
+
+The reconciler has been telling users, in shipped output, that an unexplained holding
+might be a security that "was renamed and the mapping file does not know about it yet".
+There was no such file. Week 0 established that the provider's symbol change endpoint is
+paywalled and recorded a hand maintained file as the fallback; it was never built.
+
+`config/symbol-changes.csv` is that file. CSV because a human edits it, with comments and
+blank lines ignored so it can explain itself to the next person who has to add a row.
+
+Two decisions in it are worth stating. A **malformed line is an error naming its line
+number**, not a skipped row: a silently ignored typo costs someone the rename that would
+have explained their break, and they never find out. And **a missing file is not an error**,
+because most histories contain no renamed securities and making its absence fatal would
+mean every user creating an empty one.
+
+Renames resolve transitively, so a security renamed twice still lands on what it is called
+today, and a chain that loops is refused at load rather than at the first lookup that
+follows it. A cycle here is a typo, and finding it at startup beats finding it during a
+reconciliation.
+
+### A rename is one break, not two
+
+A renamed security looks like two unrelated problems: a holding the broker reports that the
+ledger has never heard of, and a holding the ledger has that the broker no longer reports.
+Reported separately they send someone looking for a missing purchase and a missing sale,
+neither of which happened.
+
+The reconciler now pairs them using the rename file and emits one break with cause
+`TICKER_RENAMED`, marked confident, saying both names and the date.
+
+This forced a modelling correction. `BreakRecord` refused to exist when the two sides agreed
+on quantity and stated no amounts, on the reasonable grounds that a break has to disagree
+about something. A rename can agree on every number and still be a break, because what
+disagrees is the identity of the security. Hence `BreakType.IDENTITY_MISMATCH`, exempt from
+that rule. Reporting it as a quantity mismatch when the counts match would have been a lie.
+
+### The command line
+
+Seven verbs, hand rolled rather than built on a command line library, because a shell parser
+is a poor reason to add a dependency to a project that has so far added none it did not need.
+
+Exit codes are meant for something other than a person. `0` ok, `1` failed, `2` bad usage,
+and `3` for **reconcile found breaks**, which is deliberately not failure: a pipeline should
+be able to treat "your broker and this ledger disagree" as its own outcome rather than
+having to parse output to find out.
+
+`--help` is answered before the application context starts. Every other command needs a
+database, and making someone stand up Postgres to be told what the commands are would be a
+poor introduction.
+
+`PositionsFile` reads a snapshot in **basis's own format**, not a broker's. Nothing in it
+guesses at a particular statement layout. It exists so reconciliation is usable before the
+transaction statement parsers land, and it keeps the one thing that must not be guessed
+explicit: whether the file covers cash is declared with `--with-cash` rather than inferred
+from whether a currency row happens to be present. An empty file is refused, because an
+empty statement is indistinguishable from a mistake and reconciling it would report every
+holding as closed.
+
+### Four defects that only running it revealed
+
+The suite was green before any of these. They are all output quality, which for a tool whose
+entire product is an explanation a person reads is not a cosmetic category.
+
+1. The Spring banner printed above every answer.
+2. Framework startup logging printed around every answer. Quietening the root logger was not
+   enough: "Starting BasisApplication" is logged under `com.basis`, so it needed
+   `spring.main.log-startup-info: false`.
+3. Every break printed its explanation twice, because `BreakRecord.toString` runs the
+   explanation and the suggested action together and the CLI then repeated the action under
+   "next".
+4. `rebuild` reported what it had done twice, once from the projector's log and once from
+   the command.
+
+None of these is subtle, and none of them was findable from a test that asserts on a
+returned object rather than on what a person sees.
