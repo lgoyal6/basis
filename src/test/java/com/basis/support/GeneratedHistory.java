@@ -14,7 +14,9 @@ import com.basis.domain.event.CashDividend;
 import com.basis.domain.event.Fee;
 import com.basis.domain.event.LedgerEvent;
 import com.basis.domain.event.OpeningBalance;
+import com.basis.domain.event.ReverseSplit;
 import com.basis.domain.event.Sell;
+import com.basis.domain.event.Split;
 import com.basis.domain.event.Transfer;
 import com.basis.ledger.Ledger;
 import com.basis.ledger.LedgerAccounts;
@@ -55,7 +57,8 @@ public final class GeneratedHistory {
         FEE,
         DIVIDEND,
         TRANSFER_CASH,
-        TRANSFER_SECURITY
+        TRANSFER_SECURITY,
+        SPLIT
     }
 
     /**
@@ -147,6 +150,7 @@ public final class GeneratedHistory {
             case DIVIDEND -> applyDividend(intent, date, broker, commodity, ref);
             case TRANSFER_CASH -> applyCashTransfer(intent, date, broker, other, ref);
             case TRANSFER_SECURITY -> applySecurityTransfer(intent, date, broker, other, commodity, ref);
+            case SPLIT -> applySplit(intent, date, broker, commodity, ref);
         };
     }
 
@@ -289,6 +293,59 @@ public final class GeneratedHistory {
         record(new Transfer(date, from, to, ref, Fixtures.sourceRow(ref), commodity, quantity, method));
         // No cash changes hands, which is exactly what stops a transfer being read as a sale.
         return true;
+    }
+
+    /**
+     * A forward or reverse split on a position the account actually holds.
+     *
+     * <p>Both directions are generated, because a reverse split is where the arithmetic
+     * gets interesting: it can shrink a lot until its restated quantity rounds away
+     * entirely, which is the path that turns basis into a rounding residue.
+     */
+    private boolean applySplit(Intent intent, LocalDate date, Account broker, Commodity commodity, String ref) {
+        Account holding = LedgerAccounts.holding(broker, commodity);
+        if (!ledger.state().position(holding, commodity).isPositive()) {
+            return skip();
+        }
+        long ratio = splitRatio(intent.percent());
+        LedgerEvent split = intent.percent() % 2 == 0
+                ? new Split(date, broker, ref, Fixtures.sourceRow(ref), commodity, ratio, 1)
+                : new ReverseSplit(date, broker, ref, Fixtures.sourceRow(ref), commodity, 1, ratio);
+
+        record(split);
+        // A split settles nothing, so no cash expectation moves.
+        return true;
+    }
+
+    /** 2 through 5, so both directions stay in a range a real issuer might announce. */
+    public static long splitRatio(int percent) {
+        return 2L + Math.floorMod(percent, 4);
+    }
+
+    /**
+     * Appends an event that must not move cash, keeping the independent cash expectation
+     * valid. Verified rather than trusted: if the event does move cash, this fails loudly
+     * instead of quietly invalidating invariant 6.
+     */
+    public Transaction recordNonCashEvent(LedgerEvent event) {
+        Map<Account, Money> before = cashBalances();
+        Transaction transaction = ledger.record(event);
+        recorded.add(transaction);
+        applied++;
+        Map<Account, Money> after = cashBalances();
+        if (!before.equals(after)) {
+            throw new IllegalStateException(event.type() + " moved cash from " + before + " to " + after
+                    + ", so it cannot be appended without updating the cash expectation");
+        }
+        return transaction;
+    }
+
+    private Map<Account, Money> cashBalances() {
+        Map<Account, Money> balances = new LinkedHashMap<>();
+        for (Account cash : expectedCash.keySet()) {
+            balances.put(cash, ledger.state().cash(cash, Fixtures.USD));
+        }
+        return balances;
     }
 
     private static Quantity fractionOf(Quantity held, int percent) {

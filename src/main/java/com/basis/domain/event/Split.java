@@ -32,5 +32,11 @@ public record Split(
         if (numerator <= 0 || denominator <= 0) {
             throw new IllegalArgumentException("split ratio must be positive, was " + numerator + ":" + denominator);
         }
+        if (numerator <= denominator) {
+            throw new IllegalArgumentException("a forward split must increase the share count, but "
+                    + numerator + ":" + denominator + " does not. Use ReverseSplit."
+                    + " Refusing this here is what stops a parser silently filing a reverse split as a split"
+                    + " and reporting a share count off by the ratio.");
+        }
     }
 }

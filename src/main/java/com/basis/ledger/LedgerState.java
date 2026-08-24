@@ -171,20 +171,32 @@ public final class LedgerState implements LotBook {
      * cash and does realize a gain on it, which is exactly the treatment the IRS expects
      * and exactly the one a broker statement tends not to spell out.
      *
-     * <p>A realized gain leg counts as settlement too, and is a cash posting like any
-     * other because income is booked in a currency. That matters for a disposal whose
+     * <p>A realized gain leg counts as settlement too. That matters for a disposal whose
      * proceeds round to nothing in whole minor units: it still books a loss equal to its
      * basis, and it still has to be reported.
      *
-     * <p>Known limit. The rule is "cash moved", which is exact for every event that exists
-     * today, because no securities transfer carries a fee and no corporate action is
-     * handled yet. Week 3 has to sharpen it in two places: a reverse split paying cash in
-     * lieu of a fraction settles only that fraction and not the whole position, and a
-     * transfer that charges a fee would move cash without settling anything. See
+     * <p>"Cash moved" is not enough on its own, and a corporate action is what proves it.
+     * A split books its unavoidable rounding residue to an equity account in the ledger's
+     * own currency, which is a cash posting by any structural definition and settles
+     * nothing at all. So the test is narrower: cash has to have reached an account that
+     * actually holds a cash balance, or a gain has to have been booked.
+     *
+     * <p>Known limit. A securities transfer that also charged a fee would move cash into
+     * a real cash account while settling nothing, and would be misread as a sale.
+     * Unreachable today because no transfer event carries a fee. See
      * docs/ARCHITECTURE.md section 16.
      */
     private static boolean isSettled(List<Posting> postings) {
-        return postings.stream().anyMatch(Posting::isCash);
+        for (Posting posting : postings) {
+            if (!posting.isCash()) {
+                continue;
+            }
+            if (LedgerAccounts.isRealizedGain(posting.account())
+                    || LedgerAccounts.isCashBalance(posting.account())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

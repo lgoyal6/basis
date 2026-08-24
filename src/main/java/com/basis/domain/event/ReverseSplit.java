@@ -33,5 +33,9 @@ public record ReverseSplit(
             throw new IllegalArgumentException(
                     "reverse split ratio must be positive, was " + numerator + ":" + denominator);
         }
+        if (numerator >= denominator) {
+            throw new IllegalArgumentException("a reverse split must reduce the share count, but "
+                    + numerator + ":" + denominator + " does not. Use Split.");
+        }
     }
 }

@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.basis.domain.Account;
+import com.basis.domain.Commodity;
 import com.basis.domain.Lot;
 import com.basis.domain.LotSelectionMethod;
 import com.basis.domain.Money;
@@ -276,14 +277,16 @@ class DividendAndTransferTest {
     }
 
     @Test
-    @DisplayName("the corporate actions are still refused, and still name week 3")
-    void corporateActionsRemainUnhandled() {
+    @DisplayName("a spin off is still refused, and names the input it is missing")
+    void spinOffRemainsUnhandled() {
         Ledger ledger = new Ledger();
+        ledger.record(buy(JAN_15, "b1", AAPL, "10", "150.00", "0.00"));
 
-        assertThatThrownBy(() -> ledger.record(new com.basis.domain.event.Split(
-                FEB_01, IBKR, "ca1", "{}", AAPL, 4, 1)))
+        assertThatThrownBy(() -> ledger.record(new com.basis.domain.event.SpinOff(
+                FEB_01, IBKR, "ca1", "{}", AAPL, Commodity.equity("NEWCO"),
+                qty("0.5"), new java.math.BigDecimal("0.30"))))
                 .isInstanceOf(UnsupportedOperationException.class)
-                .hasMessageContaining("week 3");
+                .hasMessageContaining("basis allocation");
     }
 
     private static Money weightOn(Transaction txn, Account account) {

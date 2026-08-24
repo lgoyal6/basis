@@ -23,6 +23,17 @@ public final class LedgerAccounts {
     public static final Account COMMISSIONS = Account.of("Expenses:Commissions");
 
     /**
+     * Where the unavoidable sub cent residue of a corporate action lands.
+     *
+     * <p>A split restates a lot's unit cost, and a unit cost has six decimal places. Over
+     * a large enough share count no scale 6 unit cost reproduces the lot's basis to the
+     * cent, so something has to absorb the difference. Booking it to equity keeps it
+     * inside the ledger, visible, and queryable, rather than letting a position's basis
+     * drift by an amount nobody can account for. See docs/ARCHITECTURE.md section 19.
+     */
+    public static final Account ROUNDING = Account.of("Equity:Rounding:CorporateActions");
+
+    /**
      * Tax withheld at source on a distribution.
      *
      * <p>Booked as an expense rather than as a prepaid tax asset. basis is not a tax
@@ -53,6 +64,15 @@ public final class LedgerAccounts {
      */
     public static Account dividendIncome(Commodity commodity) {
         return Account.of("Income:Dividends").child(commodity.symbol());
+    }
+
+    /**
+     * True for an account that holds an actual cash balance, as opposed to a contra
+     * account that happens to be denominated in a currency.
+     * {@code Assets:Broker:IBKR:Cash} yes, {@code Income:Dividends:AAPL} no.
+     */
+    public static boolean isCashBalance(Account account) {
+        return account.leaf().equals(CASH_LEAF);
     }
 
     /** True for the accounts a realized gain is booked to. */

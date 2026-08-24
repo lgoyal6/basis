@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.basis.domain.Account;
 import com.basis.domain.LotSelectionMethod;
 import com.basis.domain.Money;
+import com.basis.domain.Quantity;
+import com.basis.domain.Transaction;
+import com.basis.domain.event.Split;
 import com.basis.support.Fixtures;
 import com.basis.support.GeneratedHistory;
 import com.basis.support.GeneratedHistory.Intent;
@@ -168,6 +171,61 @@ class LedgerInvariantProperties {
         assertThat(after.state().cash(cashAccount, Fixtures.USD))
                 .isEqualTo(before.state().cash(cashAccount, Fixtures.USD).minus(fee));
         LedgerInvariants.assertAllHold(after.state(), after.recorded());
+    }
+
+    @Property(tries = 300)
+    @Label("invariant 8, a split preserves value over any generated position")
+    void splitsPreserveValue(
+            @ForAll("buysOnly") List<Intent> buys,
+            @ForAll @IntRange(min = 2, max = 9) int ratio,
+            @ForAll @IntRange(min = 0, max = 2) int commodityIndex) {
+        GeneratedHistory history = GeneratedHistory.run(buys);
+        var commodity = GeneratedHistory.COMMODITIES.get(commodityIndex);
+        Account broker = GeneratedHistory.BROKERS.get(0);
+        Account holding = LedgerAccounts.holding(broker, commodity);
+
+        Quantity quantityBefore = history.state().position(holding, commodity);
+        if (!quantityBefore.isPositive()) {
+            return;
+        }
+        Money basisBefore = history.state().openBasis(holding, commodity, Fixtures.USD);
+        List<java.time.LocalDate> datesBefore = acquisitionDates(history, holding, commodity);
+        int gainsBefore = history.state().realizedGains().size();
+
+        Transaction txn = history.recordNonCashEvent(new Split(
+                java.time.LocalDate.of(2026, 6, 1), broker, "split-1", "{\"ratio\":1}",
+                commodity, ratio, 1));
+
+        Money residue = Money.zero(Fixtures.USD);
+        for (var posting : txn.postings()) {
+            if (posting.account().equals(LedgerAccounts.ROUNDING)) {
+                residue = residue.plus(posting.weight());
+            }
+        }
+
+        assertThat(history.state().openBasis(holding, commodity, Fixtures.USD).plus(residue))
+                .as("invariant 8, basis after plus the booked residue equals basis before")
+                .isEqualTo(basisBefore);
+        assertThat(history.state().position(holding, commodity))
+                .as("invariant 8, the share count scaled by exactly the stated ratio")
+                .isEqualTo(Quantity.of(quantityBefore.value().multiply(BigDecimal.valueOf(ratio))));
+        assertThat(acquisitionDates(history, holding, commodity))
+                .as("invariant 8, a split does not restart any holding period")
+                .isEqualTo(datesBefore);
+        assertThat(history.state().realizedGains())
+                .as("invariant 8, a split realizes nothing")
+                .hasSize(gainsBefore);
+
+        LedgerInvariants.assertAllHold(history.state(), history.recorded());
+        LedgerInvariants.assertCashIsConserved(history.state(), history.expectedCash());
+    }
+
+    private static List<java.time.LocalDate> acquisitionDates(
+            GeneratedHistory history, Account holding, com.basis.domain.Commodity commodity) {
+        return history.state().openLots(holding, commodity).stream()
+                .map(com.basis.domain.Lot::acquisitionDate)
+                .sorted()
+                .toList();
     }
 
     private static List<Intent> concat(List<Intent> first, List<Intent> second) {

@@ -1,11 +1,14 @@
 package com.basis.ledger;
 
 import com.basis.domain.Account;
+import com.basis.domain.Commodity;
 import com.basis.domain.Cost;
 import com.basis.domain.IdempotencyKey;
 import com.basis.domain.Lot;
 import com.basis.domain.LotId;
 import com.basis.domain.Money;
+import com.basis.domain.Posting;
+import com.basis.domain.Quantity;
 import com.basis.domain.Transaction;
 import com.basis.domain.event.Buy;
 import com.basis.domain.event.CashDividend;
@@ -48,13 +51,14 @@ public final class LedgerEventHandler {
             case OpeningBalance opening -> open(opening);
             case CashDividend dividend -> distribute(dividend);
             case Transfer transfer -> move(transfer, lots);
+            case Split split -> restate(split, split.commodity(), split.numerator(), split.denominator(), lots);
+            case ReverseSplit split ->
+                    restate(split, split.commodity(), split.numerator(), split.denominator(), lots);
+            case StockDividend dividend -> restateForStockDividend(dividend, lots);
 
-            // Declared, not handled. Each names the week that owns it, so the failure
-            // says what to do about it rather than only that something is missing.
-            case StockDividend event2 -> notYet(event2, 3, "spreading basis across a larger share count");
-            case Split event2 -> notYet(event2, 3, "corporate actions");
-            case ReverseSplit event2 -> notYet(event2, 3, "corporate actions and cash in lieu of fractions");
-            case SpinOff event2 -> notYet(event2, 3, "corporate actions and issuer published basis allocation");
+            // Declared, not handled. Names the week that owns it, so the failure says what
+            // to do about it rather than only that something is missing.
+            case SpinOff event2 -> notYet(event2, 3, "issuer published basis allocation across two commodities");
         };
     }
 
@@ -188,6 +192,76 @@ public final class LedgerEventHandler {
     private static LotId receivingLotId(Transfer transfer, LotId source) {
         return LotId.of(IdempotencyKey.of(
                 transfer.idempotencyKey().toString(), source.value()).toString());
+    }
+
+    /**
+     * A share count restatement: a split, a reverse split, or a stock dividend.
+     *
+     * <p>Every open lot is disposed of and reopened at the new count with a restated unit
+     * cost and its original acquisition date. Nothing settles in cash, so nothing is
+     * realized, which is what {@code LedgerState.isSettled} is for.
+     *
+     * <p>The plug is the rounding residue account, not cash and not a gain. In the
+     * ordinary case the residual is zero and no plug posting is emitted at all.
+     */
+    private Transaction restate(LedgerEvent event, Commodity commodity, long numerator, long denominator,
+            LotBook lots) {
+        Account holding = LedgerAccounts.holding(event.account(), commodity);
+        List<Lot> open = lots.openLots(holding, commodity);
+        List<Posting> postings = Relotting.restate(event, holding, commodity, open, numerator, denominator);
+
+        TransactionBuilder builder = TransactionBuilder.forEvent(event)
+                .narration(event.type() + " " + numerator + " for " + denominator + " on " + commodity);
+        for (Posting posting : postings) {
+            builder.posting(posting);
+        }
+        return builder.plugAt(LedgerAccounts.ROUNDING, currencyOf(open));
+    }
+
+    /**
+     * A stock dividend is a split whose ratio is implied by the shares received.
+     *
+     * <p>Receiving 2 shares on a holding of 8 is a 10 for 8 restatement. Expressing it
+     * that way rather than as "open a new lot for the free shares" is what keeps the total
+     * basis unchanged: free shares do not add basis, they dilute the basis already there.
+     */
+    private Transaction restateForStockDividend(StockDividend dividend, LotBook lots) {
+        Account holding = LedgerAccounts.holding(dividend.account(), dividend.commodity());
+        Quantity held = positionOf(lots.openLots(holding, dividend.commodity()));
+        if (!held.isPositive()) {
+            throw new IllegalStateException("stock dividend of " + dividend.quantity() + " "
+                    + dividend.commodity() + " in " + holding + " but nothing is held there."
+                    + " A distribution on a position that was never held is a break, not a transaction.");
+        }
+        if (!dividend.quantity().isPositive()) {
+            throw new IllegalArgumentException("stock dividend quantity must be positive, was "
+                    + dividend.quantity());
+        }
+
+        // Scaled to whole units so the ratio is exact in longs: a holding of 8.5 receiving
+        // 1.5 becomes 1000000000 for 850000000 rather than a rounded decimal ratio.
+        long denominator = unscaled(held);
+        long numerator = Math.addExact(denominator, unscaled(dividend.quantity()));
+        return restate(dividend, dividend.commodity(), numerator, denominator, lots);
+    }
+
+    private static long unscaled(Quantity quantity) {
+        return quantity.value().movePointRight(Quantity.SCALE).longValueExact();
+    }
+
+    private static Quantity positionOf(List<Lot> lots) {
+        Quantity total = Quantity.ZERO;
+        for (Lot lot : lots) {
+            total = total.plus(lot.remainingQuantity());
+        }
+        return total;
+    }
+
+    private static Currency currencyOf(List<Lot> lots) {
+        if (lots.isEmpty()) {
+            throw new IllegalStateException("no open lots, so there is no currency to balance in");
+        }
+        return lots.get(0).unitCost().currency();
     }
 
     private Transaction charge(Fee fee) {
