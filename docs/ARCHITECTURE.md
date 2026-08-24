@@ -257,3 +257,64 @@ rounding edge case would be trading a cosmetic problem for a correctness one.
 
 Stated as a rule: a transaction always states both sides. The plug is omitted only
 when the transaction already states both sides without it.
+
+## 15. What each invariant actually catches, and what it does not
+
+Written down because two of the eight invariants are weaker than they look, and a
+future reader deciding whether a change is safe needs to know which ones are
+load bearing.
+
+Established by mutation: three deliberate bugs were introduced one at a time and
+the suite was run to see which properties noticed.
+
+| Mutation | Caught by |
+| --- | --- |
+| realized gain sign flipped in the projection | invariant 5, plus both worked examples |
+| cash postings stop updating positions | invariant 6, and the fee property |
+| posting weight rounded HALF_UP instead of HALF_EVEN | invariant 6 only |
+
+The third row is the useful one. A change to the rounding mode is **not** caught by
+invariant 5, and that is not a gap in the test, it is a property of the invariant.
+Once invariant 1 holds, defining proceeds as "every posting that is neither a
+disposal nor a gain leg" makes `proceeds - basis = gain` algebraically forced. The
+identity is real, and enforcing it as a CHECK constraint still catches a projector
+that mis-attributes a leg, but it cannot catch an arithmetic rule applied
+consistently to both sides.
+
+What catches that is the cross-check in the invariant 5 property, which asserts
+that recorded proceeds equal `Sell.grossProceeds()` recomputed from the event, and
+invariant 6, whose expected cash is accumulated from the events with nothing the
+ledger produced. Those two are the ones that would fail if the arithmetic changed.
+Keep them independent of the ledger. The moment either starts deriving its
+expectation from a posting, rounding changes become invisible.
+
+### Invariant 4 is an identity at a point in time, not a conservation law
+
+Total basis equals the sum over open lots of quantity times unit cost, which is
+how the mandate states it and how it is implemented. It is worth being explicit
+that this does **not** extend to basis conservation across a partial disposal,
+because per posting rounding is not additive:
+
+```
+lot of 3 units at unit cost 0.005000
+  original basis    round(0.015000) = 0.02
+  disposed basis    round(0.005000) = 0.00   (HALF_EVEN, 0 is even)
+  remaining basis   round(0.010000) = 0.01
+  disposed + remaining = 0.01, but original was 0.02
+```
+
+So `remaining basis != original basis - disposed basis` in whole minor units. This
+is inherent to lot accounting over fractional shares at sub cent unit costs, and
+it is why invariant 4 is stated as an identity between the basis figure and the
+open lots at one instant rather than as a running total.
+
+The alternative is to stop recomputing remaining basis from quantity times unit
+cost and instead track it explicitly in minor units, decrementing it by each
+disposal's rounded basis. That is what a broker's cost basis engine does, and it
+would make basis conservation exact. It was not taken here because the mandate
+states invariant 4 in terms of quantity times unit cost, and because it adds a
+field whose only job is to absorb rounding residue.
+
+Week 3 should revisit this. Corporate actions restate unit costs across every open
+lot of a position, and a split that has to preserve total basis exactly is the
+first thing that will care about the residue above.

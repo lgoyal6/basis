@@ -14,7 +14,26 @@ Instead of "you have 30 fewer shares than expected", you get "that is a 4-to-1 r
 
 ## Status
 
-Week 0. Feasibility gate. See `docs/FEASIBILITY.md`.
+Week 1. Ledger core: multi-commodity double-entry postings, lot-level cost basis,
+FIFO/LIFO/HIFO/specific-lot selection, and the seven invariants that hold it
+together. No parsers, no web layer, no corporate actions yet.
+
+See `docs/FEASIBILITY.md` for the week 0 feasibility gate and
+`docs/ARCHITECTURE.md` for every design decision and why it was taken.
+
+### Building
+
+Needs JDK 21 and Docker (Testcontainers spins up Postgres 16 for the persistence
+tests).
+
+```
+JAVA_HOME=/path/to/jdk-21 ./gradlew test
+```
+
+One test fails on purpose: `CorporateActionValuePreservationTest` is invariant 8,
+corporate action value preservation, which is week 3 work. It fails rather than
+being skipped so the gap shows up in every run instead of hiding behind a green
+tick. Exclude it with `-PexcludeTags=week3`. Anything else red is a regression.
 
 ## License
 
