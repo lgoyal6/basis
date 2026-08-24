@@ -6,15 +6,11 @@ import com.basis.domain.Transaction;
 import com.basis.ledger.LedgerState;
 import com.basis.support.GeneratedHistory;
 import com.basis.support.GeneratedHistory.Intent;
-import com.basis.support.GeneratedHistory.Kind;
+import com.basis.support.Intents;
 import com.basis.support.LedgerInvariants;
-import com.basis.domain.LotSelectionMethod;
-import java.math.BigDecimal;
 import java.util.List;
 import javax.sql.DataSource;
-import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
-import net.jqwik.api.Combinators;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Label;
 import net.jqwik.api.Property;
@@ -127,7 +123,7 @@ class ReplayDeterminismProperties {
                 .isEqualTo(history.state().realizedGains());
 
         LedgerInvariants.assertAllHold(projected, history.recorded());
-        LedgerInvariants.assertCashIsConserved(projected, history.cashAccount(), history.expectedCash());
+        LedgerInvariants.assertCashIsConserved(projected, history.expectedCash());
     }
 
     @Property(tries = 15)
@@ -182,29 +178,13 @@ class ReplayDeterminismProperties {
         derivedRepository.truncate();
     }
 
+    /**
+     * Shorter histories than the in memory property uses, because each try here writes to
+     * Postgres and rebuilds derived state three times. Same generator, so the same shapes
+     * are explored, including dividends and both kinds of transfer.
+     */
     @Provide
     Arbitrary<List<Intent>> histories() {
-        Arbitrary<Intent> intent = Combinators.combine(
-                        Arbitraries.of(Kind.values()),
-                        Arbitraries.integers().between(0, GeneratedHistory.COMMODITIES.size() - 1),
-                        Arbitraries.oneOf(
-                                Arbitraries.integers().between(1, 500).map(BigDecimal::valueOf),
-                                Arbitraries.bigDecimals()
-                                        .between(new BigDecimal("0.00000001"), new BigDecimal("500"))
-                                        .ofScale(8)),
-                        Arbitraries.bigDecimals()
-                                .between(new BigDecimal("0.000001"), new BigDecimal("5000"))
-                                .ofScale(6),
-                        Arbitraries.bigDecimals()
-                                .between(BigDecimal.ZERO, new BigDecimal("19.99"))
-                                .ofScale(2),
-                        Arbitraries.integers().between(1, 100),
-                        Arbitraries.of(
-                                LotSelectionMethod.FIFO,
-                                LotSelectionMethod.LIFO,
-                                LotSelectionMethod.HIFO,
-                                LotSelectionMethod.SPECIFIC_LOT))
-                .as(Intent::new);
-        return intent.list().ofMinSize(1).ofMaxSize(12);
+        return Intents.histories(12);
     }
 }

@@ -30,5 +30,28 @@ public record CashDividend(
         Objects.requireNonNull(commodity, "commodity");
         Objects.requireNonNull(grossAmount, "grossAmount");
         Objects.requireNonNull(withheldAmount, "withheldAmount");
+        if (commodity.isCash()) {
+            throw new IllegalArgumentException("a currency does not pay a dividend: " + commodity);
+        }
+        if (!grossAmount.isPositive()) {
+            throw new IllegalArgumentException("dividend gross amount must be positive, was " + grossAmount
+                    + ". A reversed dividend is its own event and is not modelled yet.");
+        }
+        if (withheldAmount.isNegative()) {
+            throw new IllegalArgumentException("withheld amount must not be negative, was " + withheldAmount);
+        }
+        if (!withheldAmount.currency().equals(grossAmount.currency())) {
+            throw new IllegalArgumentException("withheld currency " + withheldAmount.currency().getCurrencyCode()
+                    + " does not match gross currency " + grossAmount.currency().getCurrencyCode());
+        }
+        if (withheldAmount.compareTo(grossAmount) > 0) {
+            throw new IllegalArgumentException("withheld " + withheldAmount + " exceeds the gross dividend of "
+                    + grossAmount);
+        }
+    }
+
+    /** What actually reached the account: gross less anything withheld at source. */
+    public Money netAmount() {
+        return grossAmount.minus(withheldAmount);
     }
 }

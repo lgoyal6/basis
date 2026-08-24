@@ -22,6 +22,15 @@ public final class LedgerAccounts {
     /** Trade commissions, expensed rather than capitalised. See docs/ARCHITECTURE.md section 3. */
     public static final Account COMMISSIONS = Account.of("Expenses:Commissions");
 
+    /**
+     * Tax withheld at source on a distribution.
+     *
+     * <p>Booked as an expense rather than as a prepaid tax asset. basis is not a tax
+     * product, so it has nowhere to eventually apply a credit from, and calling withheld
+     * tax an asset would imply a recoverability this ledger cannot assess.
+     */
+    public static final Account WITHHOLDING_TAX = Account.of("Expenses:Taxes:Withholding");
+
     private LedgerAccounts() {
     }
 
@@ -33,6 +42,17 @@ public final class LedgerAccounts {
     /** The holding account for a commodity, for example {@code Assets:Broker:IBKR:AAPL}. */
     public static Account holding(Account brokerRoot, Commodity commodity) {
         return brokerRoot.child(commodity.symbol());
+    }
+
+    /**
+     * Dividend income, per commodity.
+     *
+     * <p>Per commodity rather than one bucket, because "you received 340.00 in dividends"
+     * is not something a reconciliation can argue with a broker about, and
+     * "you received 12.00 from KO on this date" is.
+     */
+    public static Account dividendIncome(Commodity commodity) {
+        return Account.of("Income:Dividends").child(commodity.symbol());
     }
 
     /** True for the accounts a realized gain is booked to. */

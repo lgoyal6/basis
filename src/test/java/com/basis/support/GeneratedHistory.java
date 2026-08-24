@@ -10,8 +10,12 @@ import com.basis.domain.Quantity;
 import com.basis.domain.SpecificLotRequest;
 import com.basis.domain.Transaction;
 import com.basis.domain.event.Buy;
+import com.basis.domain.event.CashDividend;
+import com.basis.domain.event.Fee;
 import com.basis.domain.event.LedgerEvent;
+import com.basis.domain.event.OpeningBalance;
 import com.basis.domain.event.Sell;
+import com.basis.domain.event.Transfer;
 import com.basis.ledger.Ledger;
 import com.basis.ledger.LedgerAccounts;
 import com.basis.ledger.LedgerState;
@@ -19,7 +23,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 
 /**
@@ -32,9 +38,13 @@ import java.util.function.Consumer;
  * error path instead of the arithmetic. Turning intents into events here, against the
  * live position, is what keeps the generated histories legal and interesting.
  *
- * <p>Expected cash is accumulated from the intents as they are interpreted, using
- * nothing the ledger produced. That is what makes invariant 6 an independent check
+ * <p>Expected cash is accumulated from the intents as they are interpreted, per account,
+ * using nothing the ledger produced. That is what makes invariant 6 an independent check
  * rather than a restatement of invariant 1.
+ *
+ * <p>Two brokers, so that transfers have somewhere to go, positions have to stay
+ * separable by account, and cash conservation has to hold per account rather than only in
+ * total. A bug that moves cash to the wrong account conserves the total perfectly.
  */
 public final class GeneratedHistory {
 
@@ -42,26 +52,36 @@ public final class GeneratedHistory {
     public enum Kind {
         BUY,
         SELL,
-        FEE
+        FEE,
+        DIVIDEND,
+        TRANSFER_CASH,
+        TRANSFER_SECURITY
     }
 
     /**
      * One generated step, before it knows what the ledger holds.
      *
-     * @param sellPercent how much of the current holding a sell disposes of, 1 to 100
+     * @param accountIndex which broker the step happens in. For a transfer this is the
+     *     sending side and the other broker receives.
+     * @param percent how much of the current holding, cash balance or dividend a step
+     *     takes, 1 to 100
      */
     public record Intent(
             Kind kind,
             int commodityIndex,
+            int accountIndex,
             BigDecimal quantity,
             BigDecimal unitPrice,
-            BigDecimal commission,
-            int sellPercent,
+            BigDecimal amount,
+            int percent,
             LotSelectionMethod method) {
     }
 
     /** The commodities a generated history trades in. */
     public static final List<Commodity> COMMODITIES = List.of(Fixtures.AAPL, Fixtures.MSFT, Fixtures.SPY);
+
+    /** The brokers a generated history trades in. */
+    public static final List<Account> BROKERS = List.of(Fixtures.IBKR, Fixtures.SCHWAB);
 
     private static final LocalDate START = LocalDate.of(2026, 1, 5);
     private static final String OPENING_CASH = "1000000.00";
@@ -69,22 +89,18 @@ public final class GeneratedHistory {
     private final Ledger ledger = new Ledger();
     private final List<Transaction> recorded = new ArrayList<>();
     private final List<ExpectedSale> expectedSales = new ArrayList<>();
-    private Money expectedCash = Money.zero(Fixtures.USD);
+    private final Map<Account, Money> expectedCash = new LinkedHashMap<>();
     private int applied;
     private int skipped;
 
-    /** What a sale should have realized, computed from the event and the lots, not the ledger. */
+    /** What a sale should have realized, computed from the event and not from the ledger. */
     public record ExpectedSale(Money proceeds, Quantity quantity, Commodity commodity) {
     }
 
-    /** Runs every intent it can, skipping the ones the position cannot support. */
+    /** Runs every intent it can, skipping the ones the position or balance cannot support. */
     public static GeneratedHistory run(List<Intent> intents) {
-        GeneratedHistory history = new GeneratedHistory();
-        history.openCash();
-        for (int index = 0; index < intents.size(); index++) {
-            history.apply(intents.get(index), index);
-        }
-        return history;
+        return runChecking(intents, history -> {
+        });
     }
 
     /**
@@ -106,8 +122,12 @@ public final class GeneratedHistory {
     }
 
     private void openCash() {
-        record(Fixtures.openingCash(START, "open", OPENING_CASH));
-        expectedCash = expectedCash.plus(Fixtures.usd(OPENING_CASH));
+        for (Account broker : BROKERS) {
+            record(new OpeningBalance(START, broker, "open-" + broker.leaf(),
+                    Fixtures.sourceRow("open-" + broker.leaf()),
+                    Commodity.of(Fixtures.USD), Quantity.of(OPENING_CASH), null));
+            addCash(broker, Fixtures.usd(OPENING_CASH));
+        }
     }
 
     /** @return true if the intent produced a transaction */
@@ -116,75 +136,72 @@ public final class GeneratedHistory {
         // tiebreak in every ordered strategy actually gets exercised.
         LocalDate date = START.plusDays(1L + index / 2);
         Commodity commodity = COMMODITIES.get(Math.floorMod(intent.commodityIndex(), COMMODITIES.size()));
+        Account broker = BROKERS.get(Math.floorMod(intent.accountIndex(), BROKERS.size()));
+        Account other = BROKERS.get(1 - BROKERS.indexOf(broker));
         String ref = "step-" + index;
 
         return switch (intent.kind()) {
-            case BUY -> applyBuy(intent, date, commodity, ref);
-            case SELL -> applySell(intent, date, commodity, ref);
-            case FEE -> applyFee(intent, date, ref);
+            case BUY -> applyBuy(intent, date, broker, commodity, ref);
+            case SELL -> applySell(intent, date, broker, commodity, ref);
+            case FEE -> applyFee(intent, date, broker, ref);
+            case DIVIDEND -> applyDividend(intent, date, broker, commodity, ref);
+            case TRANSFER_CASH -> applyCashTransfer(intent, date, broker, other, ref);
+            case TRANSFER_SECURITY -> applySecurityTransfer(intent, date, broker, other, commodity, ref);
         };
     }
 
-    private boolean applyBuy(Intent intent, LocalDate date, Commodity commodity, String ref) {
+    private boolean applyBuy(Intent intent, LocalDate date, Account broker, Commodity commodity, String ref) {
         Quantity quantity = Quantity.of(intent.quantity());
         if (!quantity.isPositive()) {
-            skipped++;
-            return false;
+            return skip();
         }
         Price price = Price.of(intent.unitPrice(), Fixtures.USD);
-        Money commission = Money.of(intent.commission(), Fixtures.USD);
+        Money commission = Money.of(intent.amount(), Fixtures.USD);
 
-        record(new Buy(date, Fixtures.IBKR, ref, Fixtures.sourceRow(ref), commodity,
-                quantity, price, commission));
+        record(new Buy(date, broker, ref, Fixtures.sourceRow(ref), commodity, quantity, price, commission));
 
-        Money gross = Money.round(quantity.multiplyBy(price), Fixtures.USD);
-        expectedCash = expectedCash.minus(gross).minus(commission);
+        addCash(broker, Money.round(quantity.multiplyBy(price), Fixtures.USD).negate());
+        addCash(broker, commission.negate());
         return true;
     }
 
-    private boolean applySell(Intent intent, LocalDate date, Commodity commodity, String ref) {
-        Account holding = LedgerAccounts.holding(Fixtures.IBKR, commodity);
+    private boolean applySell(Intent intent, LocalDate date, Account broker, Commodity commodity, String ref) {
+        Account holding = LedgerAccounts.holding(broker, commodity);
         List<Lot> open = ledger.state().openLots(holding, commodity);
         if (open.isEmpty()) {
-            skipped++;
-            return false;
+            return skip();
         }
         Price price = Price.of(intent.unitPrice(), Fixtures.USD);
-        Money commission = Money.of(intent.commission(), Fixtures.USD);
+        Money commission = Money.of(intent.amount(), Fixtures.USD);
 
         Sell sell = intent.method() == LotSelectionMethod.SPECIFIC_LOT
-                ? specificLotSell(intent, date, commodity, ref, open, price, commission)
-                : proportionalSell(intent, date, commodity, ref, holding, price, commission);
+                ? specificLotSell(intent, date, broker, commodity, ref, open, price, commission)
+                : proportionalSell(intent, date, broker, commodity, ref, holding, price, commission);
         if (sell == null) {
-            skipped++;
-            return false;
+            return skip();
         }
 
         record(sell);
-        Money gross = sell.grossProceeds();
-        expectedCash = expectedCash.plus(gross).minus(commission);
-        expectedSales.add(new ExpectedSale(gross, sell.quantity(), commodity));
+        addCash(broker, sell.grossProceeds());
+        addCash(broker, commission.negate());
+        expectedSales.add(new ExpectedSale(sell.grossProceeds(), sell.quantity(), commodity));
         return true;
     }
 
-    private Sell proportionalSell(Intent intent, LocalDate date, Commodity commodity, String ref,
+    private Sell proportionalSell(Intent intent, LocalDate date, Account broker, Commodity commodity, String ref,
             Account holding, Price price, Money commission) {
-        Quantity held = ledger.state().position(holding, commodity);
-        BigDecimal fraction = held.value()
-                .multiply(BigDecimal.valueOf(intent.sellPercent()))
-                .divide(BigDecimal.valueOf(100), Quantity.SCALE, RoundingMode.HALF_EVEN);
-        Quantity quantity = Quantity.of(fraction);
+        Quantity quantity = fractionOf(ledger.state().position(holding, commodity), intent.percent());
         if (!quantity.isPositive()) {
             return null;
         }
-        return new Sell(date, Fixtures.IBKR, ref, Fixtures.sourceRow(ref), commodity,
+        return new Sell(date, broker, ref, Fixtures.sourceRow(ref), commodity,
                 quantity, price, commission, intent.method(), List.of());
     }
 
     /** Names a prefix of the open lots and consumes each in full, so the request is always legal. */
-    private Sell specificLotSell(Intent intent, LocalDate date, Commodity commodity, String ref,
+    private Sell specificLotSell(Intent intent, LocalDate date, Account broker, Commodity commodity, String ref,
             List<Lot> open, Price price, Money commission) {
-        int count = 1 + Math.floorMod(intent.sellPercent(), open.size());
+        int count = 1 + Math.floorMod(intent.percent(), open.size());
         List<SpecificLotRequest> named = new ArrayList<>();
         Quantity total = Quantity.ZERO;
         for (int i = 0; i < count; i++) {
@@ -195,19 +212,99 @@ public final class GeneratedHistory {
         if (!total.isPositive()) {
             return null;
         }
-        return new Sell(date, Fixtures.IBKR, ref, Fixtures.sourceRow(ref), commodity,
+        return new Sell(date, broker, ref, Fixtures.sourceRow(ref), commodity,
                 total, price, commission, LotSelectionMethod.SPECIFIC_LOT, named);
     }
 
-    private boolean applyFee(Intent intent, LocalDate date, String ref) {
-        Money amount = Money.of(intent.commission(), Fixtures.USD);
+    private boolean applyFee(Intent intent, LocalDate date, Account broker, String ref) {
+        Money amount = Money.of(intent.amount(), Fixtures.USD);
         if (!amount.isPositive()) {
-            skipped++;
-            return false;
+            return skip();
         }
-        record(Fixtures.fee(date, ref, amount.toMajorUnits().toPlainString()));
-        expectedCash = expectedCash.minus(amount);
+        record(new Fee(date, broker, ref, Fixtures.sourceRow(ref),
+                Account.of("Expenses:Fees:Account"), amount));
+        addCash(broker, amount.negate());
         return true;
+    }
+
+    /**
+     * Only paid on a commodity the account actually holds. A dividend on a position that
+     * was never held is a break rather than a transaction, and breaks are week 4.
+     */
+    private boolean applyDividend(Intent intent, LocalDate date, Account broker, Commodity commodity, String ref) {
+        if (!ledger.state().position(LedgerAccounts.holding(broker, commodity), commodity).isPositive()) {
+            return skip();
+        }
+        Money gross = Money.of(intent.amount(), Fixtures.USD);
+        if (!gross.isPositive()) {
+            return skip();
+        }
+        Money withheld = Money.round(gross.toMajorUnits()
+                .multiply(BigDecimal.valueOf(intent.percent()))
+                .divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_EVEN), Fixtures.USD);
+        if (withheld.compareTo(gross) > 0) {
+            withheld = gross;
+        }
+
+        record(new CashDividend(date, broker, ref, Fixtures.sourceRow(ref), commodity, gross, withheld));
+        addCash(broker, gross.minus(withheld));
+        return true;
+    }
+
+    private boolean applyCashTransfer(Intent intent, LocalDate date, Account from, Account to, String ref) {
+        Money available = ledger.state().cash(LedgerAccounts.cash(from), Fixtures.USD);
+        if (!available.isPositive()) {
+            return skip();
+        }
+        Money amount = Money.of(intent.amount(), Fixtures.USD);
+        if (amount.compareTo(available) > 0) {
+            amount = available;
+        }
+        if (!amount.isPositive()) {
+            return skip();
+        }
+
+        record(new Transfer(date, from, to, ref, Fixtures.sourceRow(ref), Commodity.of(Fixtures.USD),
+                Quantity.of(amount.toMajorUnits()), LotSelectionMethod.FIFO));
+        addCash(from, amount.negate());
+        addCash(to, amount);
+        return true;
+    }
+
+    private boolean applySecurityTransfer(Intent intent, LocalDate date, Account from, Account to,
+            Commodity commodity, String ref) {
+        Account holding = LedgerAccounts.holding(from, commodity);
+        if (ledger.state().openLots(holding, commodity).isEmpty()) {
+            return skip();
+        }
+        Quantity quantity = fractionOf(ledger.state().position(holding, commodity), intent.percent());
+        if (!quantity.isPositive()) {
+            return skip();
+        }
+        // Specific lot is illegal on a transfer: the event has nowhere to name lots.
+        LotSelectionMethod method = intent.method() == LotSelectionMethod.SPECIFIC_LOT
+                ? LotSelectionMethod.FIFO
+                : intent.method();
+
+        record(new Transfer(date, from, to, ref, Fixtures.sourceRow(ref), commodity, quantity, method));
+        // No cash changes hands, which is exactly what stops a transfer being read as a sale.
+        return true;
+    }
+
+    private static Quantity fractionOf(Quantity held, int percent) {
+        return Quantity.of(held.value()
+                .multiply(BigDecimal.valueOf(percent))
+                .divide(BigDecimal.valueOf(100), Quantity.SCALE, RoundingMode.HALF_EVEN));
+    }
+
+    private void addCash(Account broker, Money delta) {
+        Account cash = LedgerAccounts.cash(broker);
+        expectedCash.merge(cash, delta, Money::plus);
+    }
+
+    private boolean skip() {
+        skipped++;
+        return false;
     }
 
     private void record(LedgerEvent event) {
@@ -223,16 +320,13 @@ public final class GeneratedHistory {
         return List.copyOf(recorded);
     }
 
-    public Money expectedCash() {
-        return expectedCash;
+    /** Expected cash per cash account, accumulated from the intents alone. */
+    public Map<Account, Money> expectedCash() {
+        return Map.copyOf(expectedCash);
     }
 
     public List<ExpectedSale> expectedSales() {
         return List.copyOf(expectedSales);
-    }
-
-    public Account cashAccount() {
-        return Fixtures.IBKR_CASH;
     }
 
     public int applied() {

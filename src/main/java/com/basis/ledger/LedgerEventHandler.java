@@ -2,6 +2,7 @@ package com.basis.ledger;
 
 import com.basis.domain.Account;
 import com.basis.domain.Cost;
+import com.basis.domain.IdempotencyKey;
 import com.basis.domain.Lot;
 import com.basis.domain.LotId;
 import com.basis.domain.Money;
@@ -21,6 +22,7 @@ import com.basis.ledger.lot.LotConsumption;
 import com.basis.ledger.lot.LotSelectionRequest;
 import com.basis.ledger.lot.LotSelectionStrategies;
 import com.basis.ledger.lot.LotSelectionStrategy;
+import java.util.Currency;
 import java.util.List;
 
 /**
@@ -28,14 +30,15 @@ import java.util.List;
  * arithmetic on a trade happens.
  *
  * <p>Dispatch is an exhaustive switch over the sealed hierarchy, so a new corporate
- * action cannot be added without this class refusing to compile. The events week 1 does
- * not own are refused loudly at runtime rather than quietly mishandled.
+ * action cannot be added without this class refusing to compile. Trades, fees, opening
+ * balances, cash distributions and transfers are handled. The corporate actions are
+ * refused loudly at runtime rather than quietly mishandled.
  */
 public final class LedgerEventHandler {
 
     /**
-     * @param lots open lots to draw a disposal from, read only
-     * @throws UnsupportedOperationException for events a later week owns
+     * @param lots open lots to draw a disposal or a transfer from, read only
+     * @throws UnsupportedOperationException for the corporate actions, which week 3 owns
      */
     public Transaction toTransaction(LedgerEvent event, LotBook lots) {
         return switch (event) {
@@ -43,11 +46,11 @@ public final class LedgerEventHandler {
             case Sell sell -> dispose(sell, lots);
             case Fee fee -> charge(fee);
             case OpeningBalance opening -> open(opening);
+            case CashDividend dividend -> distribute(dividend);
+            case Transfer transfer -> move(transfer, lots);
 
             // Declared, not handled. Each names the week that owns it, so the failure
             // says what to do about it rather than only that something is missing.
-            case CashDividend event2 -> notYet(event2, 2, "cash distributions and withholding");
-            case Transfer event2 -> notYet(event2, 2, "carrying lots across accounts");
             case StockDividend event2 -> notYet(event2, 3, "spreading basis across a larger share count");
             case Split event2 -> notYet(event2, 3, "corporate actions");
             case ReverseSplit event2 -> notYet(event2, 3, "corporate actions and cash in lieu of fractions");
@@ -103,6 +106,88 @@ public final class LedgerEventHandler {
         builder.cash(LedgerAccounts.COMMISSIONS, sell.commission());
 
         return builder.plugAt(LedgerAccounts.REALIZED_GAINS, sell.price().currency());
+    }
+
+    /**
+     * A cash distribution: income credited, tax withheld at source expensed, and the net
+     * landing in cash as the plug.
+     *
+     * <p>Gross and withheld stay separate legs rather than being netted into one, because
+     * a reconciliation that cannot see the withholding cannot explain why the cash the
+     * broker paid is smaller than the dividend the issuer declared.
+     */
+    private Transaction distribute(CashDividend dividend) {
+        return TransactionBuilder.forEvent(dividend)
+                .narration("Dividend " + dividend.grossAmount() + " from " + dividend.commodity()
+                        + (dividend.withheldAmount().isZero()
+                                ? "" : " less " + dividend.withheldAmount() + " withheld"))
+                .cash(LedgerAccounts.dividendIncome(dividend.commodity()), dividend.grossAmount().negate())
+                .cash(LedgerAccounts.WITHHOLDING_TAX, dividend.withheldAmount())
+                .plugAt(LedgerAccounts.cash(dividend.account()), dividend.grossAmount().currency());
+    }
+
+    /**
+     * Movement between accounts. Nothing is bought, sold or realized.
+     *
+     * <p>Cash is the easy half. Securities are the reason this is not a week 1 event: the
+     * lots have to arrive in the receiving account carrying the acquisition date and unit
+     * cost they left with, or the holding period restarts and every later disposal reports
+     * a short term gain that was actually long term.
+     *
+     * <p>The receiving lot needs its own identifier, because a lot is opened by exactly one
+     * acquisition and the outgoing lot still exists in the sending account's history. The
+     * new id is derived by hashing the event key together with the source lot id, so it is
+     * stable across replays, fixed in length however many times a position is transferred,
+     * and traceable back to where it came from.
+     */
+    private Transaction move(Transfer transfer, LotBook lots) {
+        if (transfer.commodity().isCash()) {
+            return moveCash(transfer);
+        }
+        return moveSecurity(transfer, lots);
+    }
+
+    private Transaction moveCash(Transfer transfer) {
+        Money amount = Money.of(transfer.quantity().value(), transfer.commodity().asCurrency());
+        return TransactionBuilder.forEvent(transfer)
+                .narration("Transfer " + amount + " from " + transfer.fromAccount()
+                        + " to " + transfer.toAccount())
+                .cash(LedgerAccounts.cash(transfer.toAccount()), amount)
+                .plugAt(LedgerAccounts.cash(transfer.fromAccount()), amount.currency());
+    }
+
+    private Transaction moveSecurity(Transfer transfer, LotBook lots) {
+        Account from = LedgerAccounts.holding(transfer.fromAccount(), transfer.commodity());
+        Account to = LedgerAccounts.holding(transfer.toAccount(), transfer.commodity());
+        LotSelectionStrategy strategy = LotSelectionStrategies.forMethod(transfer.method());
+        List<LotConsumption> moved = strategy.select(new LotSelectionRequest(
+                from, transfer.commodity(), transfer.quantity(),
+                lots.openLots(from, transfer.commodity()), List.of()));
+
+        TransactionBuilder builder = TransactionBuilder.forEvent(transfer)
+                .narration("Transfer " + transfer.quantity() + " " + transfer.commodity()
+                        + " from " + transfer.fromAccount() + " to " + transfer.toAccount()
+                        + " (" + transfer.method() + ")");
+        for (LotConsumption consumption : moved) {
+            Lot source = consumption.lot();
+            builder.security(from, transfer.commodity(), consumption.quantity().negate(), source.cost());
+            builder.security(to, transfer.commodity(), consumption.quantity(),
+                    new Cost(receivingLotId(transfer, source.id()), source.unitCost(), source.acquisitionDate()));
+        }
+        // Both sides weigh the same at cost, so the residual is already zero and the plug
+        // emits nothing. A transfer settles no cash, which is what stops it from being
+        // read as a disposal. See LedgerState.isSettled.
+        return builder.plugAt(LedgerAccounts.cash(transfer.toAccount()), unitCurrency(moved));
+    }
+
+    private static Currency unitCurrency(List<LotConsumption> moved) {
+        return moved.get(0).lot().unitCost().currency();
+    }
+
+    /** Stable across replays, fixed length, and traceable to the lot it came from. */
+    private static LotId receivingLotId(Transfer transfer, LotId source) {
+        return LotId.of(IdempotencyKey.of(
+                transfer.idempotencyKey().toString(), source.value()).toString());
     }
 
     private Transaction charge(Fee fee) {

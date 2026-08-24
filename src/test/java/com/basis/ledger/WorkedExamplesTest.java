@@ -200,12 +200,14 @@ class WorkedExamplesTest {
     @DisplayName("events a later week owns are refused loudly")
     void unimplementedEventsThrow() {
         Ledger ledger = new Ledger();
-        var dividend = new com.basis.domain.event.CashDividend(
-                FEB_01, IBKR, "d1", "{}", AAPL, usd("24.00"), usd("0.00"));
+        var spinOff = new com.basis.domain.event.SpinOff(
+                FEB_01, IBKR, "ca1", "{}", AAPL, com.basis.domain.Commodity.equity("NEWCO"),
+                qty("0.5"), new java.math.BigDecimal("0.30"));
 
-        assertThatThrownBy(() -> ledger.record(dividend))
+        assertThatThrownBy(() -> ledger.record(spinOff))
                 .isInstanceOf(UnsupportedOperationException.class)
-                .hasMessageContaining("CashDividend");
+                .hasMessageContaining("SpinOff")
+                .hasMessageContaining("week 3");
     }
 
     private static Money cashWeight(Transaction txn) {

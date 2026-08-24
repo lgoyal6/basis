@@ -11,6 +11,7 @@ import com.basis.domain.Posting;
 import com.basis.domain.Quantity;
 import com.basis.domain.Transaction;
 import com.basis.ledger.BalanceChecker;
+import com.basis.ledger.LedgerAccounts;
 import com.basis.ledger.LedgerState;
 import com.basis.ledger.PositionKey;
 import com.basis.ledger.RealizedGain;
@@ -170,13 +171,39 @@ public final class LedgerInvariants {
      * <p>{@code expected} has to be accumulated by the caller from the events, entirely
      * outside the ledger. Deriving it from the postings would make this a restatement of
      * invariant 1.
+     *
+     * <p>Checked per account and not only in total, because a bug that moves cash to the
+     * wrong account conserves the total perfectly. Also checked in the other direction: no
+     * cash account the ledger knows about may be missing from the expectation, or a
+     * transfer into an account nobody is watching would go unnoticed.
      */
-    public static void assertCashIsConserved(LedgerState state, Account cashAccount, Money expected) {
-        assertThat(state.cash(cashAccount, expected.currency()))
-                .as("invariant 6, cash in %s is exactly what went in and out", cashAccount)
-                .isEqualTo(expected);
-        assertThat(state.position(cashAccount, Commodity.of(expected.currency())).value())
-                .as("invariant 6, the cash position agrees with the cash balance")
-                .isEqualByComparingTo(expected.toMajorUnits());
+    public static void assertCashIsConserved(LedgerState state, Map<Account, Money> expected) {
+        for (Map.Entry<Account, Money> entry : expected.entrySet()) {
+            Account cashAccount = entry.getKey();
+            Money amount = entry.getValue();
+            assertThat(state.cash(cashAccount, amount.currency()))
+                    .as("invariant 6, cash in %s is exactly what went in and out", cashAccount)
+                    .isEqualTo(amount);
+            assertThat(state.position(cashAccount, Commodity.of(amount.currency())).value())
+                    .as("invariant 6, the cash position in %s agrees with the cash balance", cashAccount)
+                    .isEqualByComparingTo(amount.toMajorUnits());
+        }
+
+        // Scoped to accounts that hold cash, not to every account with a currency position.
+        // The contra accounts a distribution or a purchase books against, such as
+        // Income:Dividends:AAPL or Equity:Opening-Balances, carry currency positions by
+        // design and are not balances anyone holds.
+        for (Map.Entry<PositionKey, Quantity> entry : state.positions().entrySet()) {
+            if (!entry.getKey().commodity().isCash()) {
+                continue;
+            }
+            if (!entry.getKey().account().leaf().equals(LedgerAccounts.CASH_LEAF)) {
+                continue;
+            }
+            assertThat(expected)
+                    .as("invariant 6, cash landed in %s, which nothing expected to be holding any",
+                            entry.getKey().account())
+                    .containsKey(entry.getKey().account());
+        }
     }
 }

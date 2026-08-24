@@ -2,18 +2,18 @@ package com.basis.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.basis.domain.Account;
 import com.basis.domain.LotSelectionMethod;
 import com.basis.domain.Money;
 import com.basis.support.Fixtures;
 import com.basis.support.GeneratedHistory;
 import com.basis.support.GeneratedHistory.Intent;
 import com.basis.support.GeneratedHistory.Kind;
+import com.basis.support.Intents;
 import com.basis.support.LedgerInvariants;
 import java.math.BigDecimal;
 import java.util.List;
-import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
-import net.jqwik.api.Combinators;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Label;
 import net.jqwik.api.Property;
@@ -40,7 +40,7 @@ class LedgerInvariantProperties {
     void invariantsHoldAfterEveryStep(@ForAll("histories") List<Intent> intents) {
         GeneratedHistory history = GeneratedHistory.runChecking(intents, step -> {
             LedgerInvariants.assertAllHold(step.state(), step.recorded());
-            LedgerInvariants.assertCashIsConserved(step.state(), step.cashAccount(), step.expectedCash());
+            LedgerInvariants.assertCashIsConserved(step.state(), step.expectedCash());
         });
 
         assertThat(history.recorded())
@@ -108,7 +108,7 @@ class LedgerInvariantProperties {
     void cashIsConserved(@ForAll("histories") List<Intent> intents) {
         GeneratedHistory history = GeneratedHistory.run(intents);
 
-        LedgerInvariants.assertCashIsConserved(history.state(), history.cashAccount(), history.expectedCash());
+        LedgerInvariants.assertCashIsConserved(history.state(), history.expectedCash());
     }
 
     @Property(tries = 200)
@@ -132,11 +132,11 @@ class LedgerInvariantProperties {
             @ForAll @IntRange(min = 0, max = 2) int commodityIndex) {
         GeneratedHistory history = GeneratedHistory.run(buys);
         var commodity = GeneratedHistory.COMMODITIES.get(commodityIndex);
-        var holding = LedgerAccounts.holding(Fixtures.IBKR, commodity);
+        var holding = LedgerAccounts.holding(GeneratedHistory.BROKERS.get(0), commodity);
 
-        // 100 percent of the holding, repeated: one pass is enough, the second is a no op.
+        // 100 percent of the holding in the first broker, where buysOnly puts everything.
         List<Intent> liquidate = List.of(
-                new Intent(Kind.SELL, commodityIndex, BigDecimal.ONE, new BigDecimal("123.456789"),
+                new Intent(Kind.SELL, commodityIndex, 0, BigDecimal.ONE, new BigDecimal("123.456789"),
                         BigDecimal.ZERO, 100, LotSelectionMethod.FIFO));
         GeneratedHistory after = GeneratedHistory.run(concat(buys, liquidate));
 
@@ -152,7 +152,7 @@ class LedgerInvariantProperties {
             @ForAll("feeAmounts") BigDecimal feeAmount) {
         GeneratedHistory before = GeneratedHistory.run(buys);
         Money fee = Money.of(feeAmount, Fixtures.USD);
-        List<Intent> withFee = concat(buys, List.of(new Intent(Kind.FEE, 0, BigDecimal.ONE,
+        List<Intent> withFee = concat(buys, List.of(new Intent(Kind.FEE, 0, 0, BigDecimal.ONE,
                 BigDecimal.ONE, fee.toMajorUnits(), 1, LotSelectionMethod.FIFO)));
 
         GeneratedHistory after = GeneratedHistory.run(withFee);
@@ -164,8 +164,9 @@ class LedgerInvariantProperties {
                 .isEqualTo(before.state().positions().entrySet().stream()
                         .filter(entry -> !entry.getKey().commodity().isCash())
                         .toList());
-        assertThat(after.state().cash(after.cashAccount(), Fixtures.USD))
-                .isEqualTo(before.state().cash(before.cashAccount(), Fixtures.USD).minus(fee));
+        Account cashAccount = LedgerAccounts.cash(GeneratedHistory.BROKERS.get(0));
+        assertThat(after.state().cash(cashAccount, Fixtures.USD))
+                .isEqualTo(before.state().cash(cashAccount, Fixtures.USD).minus(fee));
         LedgerInvariants.assertAllHold(after.state(), after.recorded());
     }
 
@@ -177,57 +178,16 @@ class LedgerInvariantProperties {
 
     @Provide
     Arbitrary<List<Intent>> histories() {
-        return intents(Arbitraries.of(Kind.values())).list().ofMinSize(1).ofMaxSize(20);
+        return Intents.histories(20);
     }
 
     @Provide
     Arbitrary<List<Intent>> buysOnly() {
-        return intents(Arbitraries.just(Kind.BUY)).list().ofMinSize(1).ofMaxSize(10);
-    }
-
-    private static Arbitrary<Intent> intents(Arbitrary<Kind> kinds) {
-        return Combinators.combine(
-                        kinds,
-                        Arbitraries.integers().between(0, GeneratedHistory.COMMODITIES.size() - 1),
-                        quantities(),
-                        prices(),
-                        commissions(),
-                        Arbitraries.integers().between(1, 100),
-                        Arbitraries.of(
-                                LotSelectionMethod.FIFO,
-                                LotSelectionMethod.LIFO,
-                                LotSelectionMethod.HIFO,
-                                LotSelectionMethod.SPECIFIC_LOT))
-                .as(Intent::new);
-    }
-
-    /** Whole share counts and fractional ones, because fractional shares are where rounding bites. */
-    private static Arbitrary<BigDecimal> quantities() {
-        Arbitrary<BigDecimal> whole = Arbitraries.integers().between(1, 500).map(BigDecimal::valueOf);
-        Arbitrary<BigDecimal> fractional = Arbitraries.bigDecimals()
-                .between(new BigDecimal("0.00000001"), new BigDecimal("500"))
-                .ofScale(8);
-        return Arbitraries.oneOf(whole, fractional);
-    }
-
-    /** Prices at full scale 6, including sub cent unit prices. */
-    private static Arbitrary<BigDecimal> prices() {
-        return Arbitraries.bigDecimals()
-                .between(new BigDecimal("0.000001"), new BigDecimal("5000"))
-                .ofScale(6);
+        return Intents.buysOnly(10);
     }
 
     @Provide
     Arbitrary<BigDecimal> feeAmounts() {
-        return Arbitraries.bigDecimals()
-                .between(new BigDecimal("0.01"), new BigDecimal("999.99"))
-                .ofScale(2);
-    }
-
-    /** Commissions must be exact in cents, so scale 2. Zero is included: many brokers charge nothing. */
-    private static Arbitrary<BigDecimal> commissions() {
-        return Arbitraries.bigDecimals()
-                .between(BigDecimal.ZERO, new BigDecimal("19.99"))
-                .ofScale(2);
+        return Intents.positiveAmounts();
     }
 }

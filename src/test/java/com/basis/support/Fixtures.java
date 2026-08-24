@@ -8,9 +8,11 @@ import com.basis.domain.Price;
 import com.basis.domain.Quantity;
 import com.basis.domain.SpecificLotRequest;
 import com.basis.domain.event.Buy;
+import com.basis.domain.event.CashDividend;
 import com.basis.domain.event.Fee;
 import com.basis.domain.event.OpeningBalance;
 import com.basis.domain.event.Sell;
+import com.basis.domain.event.Transfer;
 import com.basis.ledger.LedgerAccounts;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -25,6 +27,13 @@ public final class Fixtures {
 
     public static final Account IBKR = Account.of("Assets:Broker:IBKR");
     public static final Account IBKR_CASH = LedgerAccounts.cash(IBKR);
+
+    /** A second broker, so transfers have somewhere to go and positions stay separable. */
+    public static final Account SCHWAB = Account.of("Assets:Broker:Schwab");
+    public static final Account SCHWAB_CASH = LedgerAccounts.cash(SCHWAB);
+
+    /** Outside the brokerage, so a deposit is just a transfer from somewhere else. */
+    public static final Account BANK = Account.of("Assets:Bank:Chase");
 
     public static final Commodity AAPL = Commodity.equity("AAPL");
     public static final Commodity MSFT = Commodity.equity("MSFT");
@@ -82,6 +91,21 @@ public final class Fixtures {
 
     public static OpeningBalance openingCash(LocalDate date, String ref, String amount) {
         return new OpeningBalance(date, IBKR, ref, sourceRow(ref), Commodity.of(USD), qty(amount), null);
+    }
+
+    public static CashDividend dividend(LocalDate date, String ref, Commodity commodity,
+            String gross, String withheld) {
+        return new CashDividend(date, IBKR, ref, sourceRow(ref), commodity, usd(gross), usd(withheld));
+    }
+
+    public static Transfer transferCash(LocalDate date, String ref, Account from, Account to, String amount) {
+        return new Transfer(date, from, to, ref, sourceRow(ref), Commodity.of(USD), qty(amount),
+                LotSelectionMethod.FIFO);
+    }
+
+    public static Transfer transferSecurity(LocalDate date, String ref, Account from, Account to,
+            Commodity commodity, String quantity, LotSelectionMethod method) {
+        return new Transfer(date, from, to, ref, sourceRow(ref), commodity, qty(quantity), method);
     }
 
     public static OpeningBalance openingSecurity(LocalDate date, String ref, Commodity commodity,
