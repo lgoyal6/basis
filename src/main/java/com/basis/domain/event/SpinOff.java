@@ -38,5 +38,16 @@ public record SpinOff(
             throw new IllegalArgumentException(
                     "parent basis fraction must be between 0 and 1, was " + parentBasisFraction.toPlainString());
         }
+        if (parent.equals(spunOff)) {
+            throw new IllegalArgumentException("a company cannot spin off itself: " + parent);
+        }
+        if (parent.isCash() || spunOff.isCash()) {
+            throw new IllegalArgumentException("a spin off moves securities, not currency: "
+                    + parent + " to " + spunOff);
+        }
+        if (!quantityPerParentShare.isPositive()) {
+            throw new IllegalArgumentException("shares received per parent share must be positive, was "
+                    + quantityPerParentShare);
+        }
     }
 }

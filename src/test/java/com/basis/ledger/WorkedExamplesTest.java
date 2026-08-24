@@ -196,19 +196,6 @@ class WorkedExamplesTest {
                 .hasMessageContaining("mutual fund");
     }
 
-    @Test
-    @DisplayName("events a later week owns are refused loudly")
-    void unimplementedEventsThrow() {
-        Ledger ledger = new Ledger();
-        var spinOff = new com.basis.domain.event.SpinOff(
-                FEB_01, IBKR, "ca1", "{}", AAPL, com.basis.domain.Commodity.equity("NEWCO"),
-                qty("0.5"), new java.math.BigDecimal("0.30"));
-
-        assertThatThrownBy(() -> ledger.record(spinOff))
-                .isInstanceOf(UnsupportedOperationException.class)
-                .hasMessageContaining("SpinOff")
-                .hasMessageContaining("week 3");
-    }
 
     private static Money cashWeight(Transaction txn) {
         return weightOn(txn, IBKR_CASH);

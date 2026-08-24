@@ -288,17 +288,4 @@ class CorporateActionValuePreservationTest {
         return total;
     }
 
-    @Test
-    @DisplayName("a spin off is still refused, and still names what it needs")
-    void spinOffRemainsUnhandled() {
-        Ledger ledger = new Ledger();
-        ledger.record(buy(JAN_15, "b1", AAPL, "10", "150.00", "0.00"));
-
-        assertThatThrownBy(() -> ledger.record(new com.basis.domain.event.SpinOff(
-                JAN_15.plusMonths(1), IBKR, "ca1", "{}", AAPL,
-                com.basis.domain.Commodity.equity("NEWCO"), Quantity.of("0.5"),
-                new java.math.BigDecimal("0.30"))))
-                .isInstanceOf(UnsupportedOperationException.class)
-                .hasMessageContaining("basis allocation");
-    }
 }

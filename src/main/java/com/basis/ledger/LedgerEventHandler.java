@@ -32,17 +32,14 @@ import java.util.List;
  * Turns an event into a balanced transaction. The only place in the system where
  * arithmetic on a trade happens.
  *
- * <p>Dispatch is an exhaustive switch over the sealed hierarchy, so a new corporate
- * action cannot be added without this class refusing to compile. Trades, fees, opening
- * balances, cash distributions and transfers are handled. The corporate actions are
- * refused loudly at runtime rather than quietly mishandled.
+ * <p>Dispatch is an exhaustive switch over the sealed hierarchy, so a new event cannot be
+ * added without this class refusing to compile. Every event the hierarchy declares is now
+ * handled, which means the switch has no default and no escape hatch: the next corporate
+ * action anyone adds will break the build here until someone decides what it does.
  */
 public final class LedgerEventHandler {
 
-    /**
-     * @param lots open lots to draw a disposal or a transfer from, read only
-     * @throws UnsupportedOperationException for the corporate actions, which week 3 owns
-     */
+    /** @param lots open lots to draw a disposal, transfer or corporate action from, read only */
     public Transaction toTransaction(LedgerEvent event, LotBook lots) {
         return switch (event) {
             case Buy buy -> acquire(buy);
@@ -55,10 +52,7 @@ public final class LedgerEventHandler {
             case ReverseSplit split ->
                     restate(split, split.commodity(), split.numerator(), split.denominator(), lots);
             case StockDividend dividend -> restateForStockDividend(dividend, lots);
-
-            // Declared, not handled. Names the week that owns it, so the failure says what
-            // to do about it rather than only that something is missing.
-            case SpinOff event2 -> notYet(event2, 3, "issuer published basis allocation across two commodities");
+            case SpinOff spinOff -> allocate(spinOff, lots);
         };
     }
 
@@ -264,6 +258,32 @@ public final class LedgerEventHandler {
         return lots.get(0).unitCost().currency();
     }
 
+    /**
+     * A spin off: the parent distributes shares of a new company, and part of the parent's
+     * cost basis goes with them.
+     *
+     * <p>The allocation fraction comes from the event because the issuer publishes it and
+     * no price feed can derive it. That is why this is the corporate action most likely to
+     * raise a break and ask rather than guess.
+     *
+     * <p>Nothing settles in cash, so nothing is realized, and the spun off shares inherit
+     * the parent lot's acquisition date.
+     */
+    private Transaction allocate(SpinOff spinOff, LotBook lots) {
+        Account parentHolding = LedgerAccounts.holding(spinOff.account(), spinOff.parent());
+        Account spunHolding = LedgerAccounts.holding(spinOff.account(), spinOff.spunOff());
+        List<Lot> open = lots.openLots(parentHolding, spinOff.parent());
+        List<Posting> postings = Relotting.spinOff(spinOff, parentHolding, spunHolding, open);
+
+        TransactionBuilder builder = TransactionBuilder.forEvent(spinOff)
+                .narration("SpinOff " + spinOff.spunOff() + " from " + spinOff.parent() + ", "
+                        + spinOff.parentBasisFraction().toPlainString() + " of basis allocated");
+        for (Posting posting : postings) {
+            builder.posting(posting);
+        }
+        return builder.plugAt(LedgerAccounts.ROUNDING, currencyOf(open));
+    }
+
     private Transaction charge(Fee fee) {
         return TransactionBuilder.forEvent(fee)
                 .narration("Fee " + fee.amount() + " to " + fee.expenseAccount())
@@ -296,11 +316,5 @@ public final class LedgerEventHandler {
     /** Deterministic, so replaying an import reproduces the same lot ids. */
     private static LotId lotIdFor(LedgerEvent event) {
         return LotId.of(event.idempotencyKey().toString());
-    }
-
-    private static Transaction notYet(LedgerEvent event, int week, String what) {
-        throw new UnsupportedOperationException(event.type() + " is declared but not handled in week 1."
-                + " It needs " + what + ", which is week " + week + " work."
-                + " The event on " + event.date() + " in " + event.account() + " was not applied.");
     }
 }

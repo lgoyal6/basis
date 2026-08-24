@@ -16,6 +16,7 @@ import com.basis.domain.event.LedgerEvent;
 import com.basis.domain.event.OpeningBalance;
 import com.basis.domain.event.ReverseSplit;
 import com.basis.domain.event.Sell;
+import com.basis.domain.event.SpinOff;
 import com.basis.domain.event.Split;
 import com.basis.domain.event.Transfer;
 import com.basis.ledger.Ledger;
@@ -58,7 +59,8 @@ public final class GeneratedHistory {
         DIVIDEND,
         TRANSFER_CASH,
         TRANSFER_SECURITY,
-        SPLIT
+        SPLIT,
+        SPIN_OFF
     }
 
     /**
@@ -82,6 +84,9 @@ public final class GeneratedHistory {
 
     /** The commodities a generated history trades in. */
     public static final List<Commodity> COMMODITIES = List.of(Fixtures.AAPL, Fixtures.MSFT, Fixtures.SPY);
+
+    /** Where every generated spin off lands. */
+    public static final Commodity SPUN_OFF = Commodity.equity("SPINCO");
 
     /** The brokers a generated history trades in. */
     public static final List<Account> BROKERS = List.of(Fixtures.IBKR, Fixtures.SCHWAB);
@@ -151,6 +156,7 @@ public final class GeneratedHistory {
             case TRANSFER_CASH -> applyCashTransfer(intent, date, broker, other, ref);
             case TRANSFER_SECURITY -> applySecurityTransfer(intent, date, broker, other, commodity, ref);
             case SPLIT -> applySplit(intent, date, broker, commodity, ref);
+            case SPIN_OFF -> applySpinOff(intent, date, broker, commodity, ref);
         };
     }
 
@@ -314,6 +320,27 @@ public final class GeneratedHistory {
 
         record(split);
         // A split settles nothing, so no cash expectation moves.
+        return true;
+    }
+
+    /**
+     * A spin off from a held position into a single fixed child commodity.
+     *
+     * <p>One child for every parent, so several parents can spin into the same holding and
+     * the lots have to merge correctly rather than each living in their own tidy corner.
+     */
+    private boolean applySpinOff(Intent intent, LocalDate date, Account broker, Commodity commodity, String ref) {
+        if (!ledger.state().position(LedgerAccounts.holding(broker, commodity), commodity).isPositive()) {
+            return skip();
+        }
+        BigDecimal perShare = BigDecimal.valueOf(intent.percent())
+                .divide(BigDecimal.valueOf(100), Quantity.SCALE, RoundingMode.HALF_EVEN);
+        BigDecimal fraction = BigDecimal.valueOf(intent.percent())
+                .divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_EVEN);
+
+        record(new SpinOff(date, broker, ref, Fixtures.sourceRow(ref), commodity, SPUN_OFF,
+                Quantity.of(perShare), fraction));
+        // A spin off settles nothing, so no cash expectation moves.
         return true;
     }
 

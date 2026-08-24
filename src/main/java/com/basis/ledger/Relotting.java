@@ -11,6 +11,7 @@ import com.basis.domain.Posting;
 import com.basis.domain.Price;
 import com.basis.domain.Quantity;
 import com.basis.domain.event.LedgerEvent;
+import com.basis.domain.event.SpinOff;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -75,7 +76,8 @@ final class Relotting {
                 continue;
             }
             postings.add(Posting.security(holding, commodity, restated,
-                    new Cost(derivedLotId(event, lot.id()), unitCostFor(basis, restated), lot.acquisitionDate())));
+                    new Cost(derivedLotId(event, lot.id(), "restated"),
+                            unitCostFor(basis, restated), lot.acquisitionDate())));
         }
         return List.copyOf(postings);
     }
@@ -95,10 +97,73 @@ final class Relotting {
     }
 
     /**
+     * Splits one parent position into a reduced parent position and a new one, allocating
+     * basis by the fraction the issuer published.
+     *
+     * <p>The parent's share count does not change; only its basis does, which still means
+     * disposing of each lot and reopening it, because a lot is immutable and its unit cost
+     * has to move.
+     *
+     * <p>Basis is allocated by subtraction rather than by rounding both sides: what stays
+     * with the parent is the lot's basis minus what moved, so the two halves add back to
+     * the whole exactly. Rounding both independently would lose or invent a cent per lot
+     * for no reason.
+     *
+     * <p>The spun off lot carries the parent lot's acquisition date. US rules give the new
+     * shares the parent's holding period, so dating them to the distribution would report
+     * a short term gain on a position someone had held for years.
+     */
+    static List<Posting> spinOff(
+            SpinOff event,
+            Account parentHolding,
+            Account spunHolding,
+            List<Lot> lots) {
+        if (lots.isEmpty()) {
+            throw new IllegalStateException("SpinOff of " + event.spunOff() + " from " + event.parent()
+                    + " in " + parentHolding + " has no open lots to allocate basis from."
+                    + " A corporate action on a position that was never held is a break, not a transaction.");
+        }
+
+        List<Posting> postings = new ArrayList<>();
+        for (Lot lot : lots) {
+            Money basis = lot.remainingBasis();
+            Quantity received = sharesReceived(lot.remainingQuantity(), event.quantityPerParentShare());
+
+            // No shares received means no basis leaves. Moving basis to a position that
+            // rounded away would destroy it for the sake of following the formula.
+            Money moved = received.isZero()
+                    ? Money.zero(basis.currency())
+                    : Money.round(basis.toMajorUnits().multiply(event.parentBasisFraction()), basis.currency());
+            Money retained = basis.minus(moved);
+
+            postings.add(Posting.security(parentHolding, event.parent(),
+                    lot.remainingQuantity().negate(), lot.cost()));
+            postings.add(Posting.security(parentHolding, event.parent(), lot.remainingQuantity(),
+                    new Cost(derivedLotId(event, lot.id(), "parent"),
+                            unitCostFor(retained, lot.remainingQuantity()), lot.acquisitionDate())));
+            if (!received.isZero()) {
+                postings.add(Posting.security(spunHolding, event.spunOff(), received,
+                        new Cost(derivedLotId(event, lot.id(), "spun"),
+                                unitCostFor(moved, received), lot.acquisitionDate())));
+            }
+        }
+        return List.copyOf(postings);
+    }
+
+    private static Quantity sharesReceived(Quantity held, Quantity perParentShare) {
+        return Quantity.of(held.value().multiply(perParentShare.value()));
+    }
+
+    /**
      * Stable across replays, fixed in length however many corporate actions a position
      * survives, and traceable to the lot it replaced.
+     *
+     * <p>The role matters. A spin off turns one lot into two, and deriving both from the
+     * same source would hand them the same identifier and open the second on top of the
+     * first.
      */
-    static LotId derivedLotId(LedgerEvent event, LotId source) {
-        return LotId.of(IdempotencyKey.of(event.idempotencyKey().toString(), source.value()).toString());
+    static LotId derivedLotId(LedgerEvent event, LotId source, String role) {
+        return LotId.of(IdempotencyKey.of(
+                event.idempotencyKey().toString(), source.value(), role).toString());
     }
 }
