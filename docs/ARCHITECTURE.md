@@ -496,3 +496,52 @@ exactly that.
 commodities, and the allocation fraction is published by the issuer rather than
 derivable from any price feed, which is why it is the event most likely to raise a
 break and ask rather than guess.
+
+## 20. A spin off allocates basis across two commodities
+
+The last event in the hierarchy, and the only one that touches two securities at
+once. The parent distributes shares of a new company and part of the parent's cost
+basis goes with them.
+
+The allocation fraction arrives on the event. It has to: the issuer publishes it on
+Form 8937 based on relative fair market values immediately after the distribution,
+and no price feed can derive it after the fact. This is the corporate action most
+likely to raise a break and ask rather than guess, which is exactly what the README
+promises the product does.
+
+Three decisions worth recording.
+
+**Basis is allocated by subtraction, not by rounding both sides.** What moves is
+`round(basis * fraction)`; what stays is `basis - moved`. Rounding both halves
+independently would lose or invent a cent per lot for no reason. Doing it this way
+means the allocation itself contributes no residue at all, and the only rounding
+left is re-expressing each half as a scale 6 unit cost, which is the same bounded
+residue as a split and goes to the same place.
+
+**The parent lot is still disposed of and reopened, even though its share count
+does not change.** Only its unit cost moves, and a lot is immutable, so there is no
+way to express that except as a disposal and a reacquisition. The alternative,
+mutating the lot in the derived tables, would put state there that the posting
+table cannot reproduce and would break invariant 7.
+
+**The spun off lot carries the parent lot's acquisition date.** US rules give the
+new shares the parent's holding period. Dating them to the distribution would
+report a short term gain on shares someone had effectively held for years, which is
+both wrong and the sort of wrong a taxpayer only discovers at filing time.
+
+One consequence of a spin off producing two lots from one: the derived lot
+identifier needs a role in its hash. Deriving both from the event key and the
+source lot id alone would hand them the same identifier, and the second would be
+opened on top of the first. It is a one word fix and a silent corruption if missed,
+so it has a test of its own.
+
+### The hierarchy is now closed
+
+Every event `LedgerEvent` permits is handled. The switch in `LedgerEventHandler`
+has no default and no escape hatch, so the compiler refuses the next event anyone
+adds until someone decides what it does, and `EveryEventIsHandledTest` reads the
+permitted subclasses off the sealed interface so the test suite refuses it too.
+
+What is still missing is not an event. It is cash in lieu of fractional shares,
+which needs a field on `ReverseSplit` rather than a new type, and which the
+settlement rule in section 16 is already shaped to handle correctly once it exists.

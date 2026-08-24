@@ -20,12 +20,12 @@ Week 3. Ledger core, distributions, transfers, and corporate actions.
   FIFO/LIFO/HIFO/specific-lot selection
 - Buys, sells, fees, opening balances, cash dividends with withholding, and
   transfers that carry their lots so the holding period does not restart
-- Splits, reverse splits and stock dividends, which restate a share count without
-  changing what the position is worth
+- Splits, reverse splits, stock dividends and spin offs, which restate a position
+  without changing what it is worth
 - All eight invariants, asserted over generated histories after every step
 
-Still to come: spin offs, statement parsers, reconciliation and break records.
-No web layer.
+Every event the ledger declares is now handled. Still to come: statement parsers,
+reconciliation and break records, and cash in lieu of fractional shares. No web layer.
 
 See `docs/FEASIBILITY.md` for the week 0 feasibility gate and
 `docs/ARCHITECTURE.md` for every design decision and why it was taken.
