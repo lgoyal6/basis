@@ -198,3 +198,31 @@ The safety that (a) would have given is recovered at the only place it matters:
 persistence layer will not write a transaction it has not seen pass. The window in
 which an unbalanced `Transaction` object can exist is a few statements inside a
 builder.
+
+## 13. `posting.weight_minor` is stored, though it is derivable
+
+A posting's weight at cost is a pure function of its own other columns, so storing
+it duplicates information. It is stored anyway.
+
+Options:
+
+- **(a) Compute on read.** The only definition of a weight is
+  `Posting.weight()`, and there is no chance of the column disagreeing with the code.
+- **(b) Store at write time.** The column is written once, when the posting is written.
+
+Picked **(b)**, for two reasons that (a) cannot offer.
+
+The balance invariant becomes checkable by anyone with a psql prompt and no
+knowledge of the application: `SELECT txn_id, weight_currency, SUM(weight_minor)
+FROM posting GROUP BY 1, 2 HAVING SUM(weight_minor) <> 0` either returns nothing or
+names the broken transaction. For a tool whose output is an argument with a broker,
+being auditable from outside the code matters more than avoiding a duplicated column.
+
+And a change to the rounding rule cannot retroactively restate the weight of a
+posting that was already written. Under (a) it silently would, and a historical
+transaction that balanced when it was recorded could start failing years later for
+reasons unrelated to its own data.
+
+The cost of (b) is that the column could drift from the code. That is what the
+`weight_minor` reconciliation in the persistence tests is for: every posting read
+back is checked against a freshly computed `Posting.weight()`.

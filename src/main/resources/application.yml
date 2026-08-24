@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: basis
+  # No web layer. basis is a batch process over an append only ledger.
+  main:
+    web-application-type: none
+  datasource:
+    url: ${BASIS_DB_URL:jdbc:postgresql://localhost:5432/basis}
+    username: ${BASIS_DB_USER:basis}
+    password: ${BASIS_DB_PASSWORD:basis}
+  flyway:
+    enabled: true
+    # Never clean a ledger. The whole point of the append only table is that it
+    # cannot be thrown away by accident.
+    clean-disabled: true
+    baseline-on-migrate: false
+
+logging:
+  level:
+    com.basis: INFO
