@@ -617,3 +617,96 @@ Widened from `com.basis.domain` to `com.basis` when reconciliation arrived.
 Deciding whether two share counts differ by exactly 4 to 1 is precisely the
 arithmetic that looks fine in floating point right up until a position is large
 enough that it is not.
+
+## 22. The reference data fetcher, and the three answers it made possible
+
+### Record the fetch, not just what it returned
+
+`reference_data` holds one row per split, which answers "what splits does AAPL have" and
+cannot answer "has anyone looked". A symbol with no splits and a symbol nobody fetched
+both have zero rows.
+
+That ambiguity is not theoretical on the free tier. Probing the provider established that
+an unknown or unsubscribed symbol returns **HTTP 402, not an empty array**, so "cannot
+check" is the ordinary outcome rather than the rare one. Without recording fetches, the
+common case and the interesting case are indistinguishable.
+
+So `reference_data_fetch` records that a fetch happened, with `last_attempt_at` and
+`last_success_at` kept separate: a timeout today does not make yesterday's split history
+untrustworthy, and rate limiting reads the success while error reporting reads the attempt.
+
+`SplitCalendar` now returns `SplitCoverage` rather than a list, and the reconciler says
+three different things:
+
+| Coverage | What the break says | Confident |
+| --- | --- | --- |
+| a matching split on record | "AAPL had a 4 for 1 split effective 2020-08-31 that this history never applied" | yes |
+| checked, no matching split | "the split history was confirmed on <date> and contains no such split. The ratio is a coincidence" | no, and it points at missing trades instead |
+| never checked, or check failed | "cannot confirm or rule that out because it has never been fetched" | no |
+
+The middle row is the one the fetch record buys. It is also the most interesting thing
+basis can produce: a break that looks exactly like a split and provably is not. It gets its
+own cause code, `RATIO_WITHOUT_KNOWN_SPLIT`, so it cannot hide inside the split statistics.
+
+### No new dependency, and no JSON parser
+
+The client uses the JDK's `HttpClient`. Spring's `RestClient` would mean putting a web
+stack on the classpath of an application that deliberately runs with none, to make one GET.
+
+Nothing parses JSON in Java. The provider's array goes to Postgres, which already reads it
+with `payload->>'numerator'`. One `INSERT ... SELECT jsonb_array_elements(...)` ingests a
+whole response.
+
+`DISTINCT ON` in that statement is load bearing rather than tidy. If a response carries two
+entries for the same date, `ON CONFLICT DO UPDATE` touching one key twice in a single
+statement fails outright with "cannot affect row a second time", and the entire refresh
+dies on a duplicate the caller never created. There is a test for exactly that.
+
+`jackson-databind` is in fact resolvable, but only transitively through Flyway. Anything
+that wanted it should declare it rather than rely on Flyway continuing to drag it in.
+
+### Failures are values, and they are not all the same kind
+
+`SplitFeed` never throws for a provider level failure; a failure is a `FeedResult`. The
+outcomes were measured, not assumed:
+
+- **402, per symbol.** A run continues past it. On a free tier most symbols answer this
+  way, and stopping would mean never reaching the ones that work.
+- **401, not per symbol.** A run stops. Marching through every holding to record the same
+  wrong key against each is worse than useless: it writes a wall of failures that look like
+  data problems.
+- **200 with a body that is not an array.** The provider returns `{"Error Message": ...}`
+  at 200 as well as at 401, so a success status is not sufficient evidence of success.
+- **402 bodies are plain text**, which is why the array check is a `startsWith("[")` rather
+  than a parse.
+
+### The key is a query parameter, so a logged URL is a leaked credential
+
+The provider takes `apikey` in the query string. Nothing in the client logs a request, and
+`FeedResult.detail` carries the status and a truncated body but never the URL. There is a
+test asserting the key does not appear in what the feed reports.
+
+`.env` is not read by Spring; it exists for the week 0 probe. `FmpProperties.requireUsable`
+fails at startup when the fetcher is enabled without a key, and says how to export it,
+because the alternative is a refresh run quietly recording UNAUTHORIZED against every
+symbol held.
+
+### The budget is imposed, not derived
+
+The provider returns no rate limit headers at all, so there is nothing to read and back off
+from. `basis.fmp.daily-request-budget` is a ceiling this application sets, defaulting to a
+deliberately small 50 until the real limit is read off the dashboard, which
+docs/FEASIBILITY.md now records as the one open question.
+
+Requests go to the symbols where they are worth most: symbols with an open break a split
+would explain, then symbols held, never fetched before long ago before recently, and a
+symbol nobody holds is never fetched at all. Refreshing alphabetically would spend the
+budget on whatever starts with A.
+
+### Testing
+
+The feed is the seam. Everything above it is tested with response bodies captured verbatim
+from the live provider, against a real Postgres, with no socket. Two tests tagged `network`
+do call out: one contract test checking the provider has not changed shape, and one full
+loop that fetches Apple's real split history and watches a break go from suspicion to a
+finding naming 2020-08-31. Both are excluded from every default run and need `-PwithNetwork`.

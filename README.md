@@ -27,6 +27,9 @@ Week 4. Ledger core, distributions, transfers, corporate actions, reconciliation
 - Reconciliation against a broker position snapshot, producing breaks with a
   probable cause attached
 
+- A market data client that populates the split cache, so most split-shaped breaks
+  explain themselves
+
 Every event the ledger declares is now handled. Still to come: statement parsers,
 and cash in lieu of fractional shares. No web layer.
 
@@ -44,6 +47,23 @@ Apply the 4 for 1 split of AAPL dated 2026-02-20 and reconcile again.
 
 Without reference data the same break still finds the ratio, says so is arithmetic
 rather than evidence, and is marked not confident. basis does not guess.
+
+There are three answers, not two. If the split history was fetched and contains no
+such split, the break says so and points at missing trades instead: a ratio that
+provably is not a corporate action is a different finding, and it gets its own code.
+
+### Market data
+
+Split history comes from Financial Modeling Prep and is cached in `reference_data`.
+It is off by default and touches the network only when switched on:
+
+```
+set -a; source .env; set +a          # Spring does not read .env itself
+BASIS_FMP_ENABLED=true ./gradlew ... # or set basis.fmp.enabled
+```
+
+Two tests call the provider for real and are excluded from every default run. Run
+them with `./gradlew test -PwithNetwork` and a key in the environment.
 
 See `docs/FEASIBILITY.md` for the week 0 feasibility gate and
 `docs/ARCHITECTURE.md` for every design decision and why it was taken.

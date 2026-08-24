@@ -54,3 +54,58 @@ SUMMARY, paste into FEASIBILITY.md
   can be refreshed per day and therefore the caching design:
     Stated free-tier request limit: ____ per ____
 
+
+
+========================================================================
+ADDENDUM, 2026-08-24: what the fetcher had to be built against
+========================================================================
+
+Probed again while building the reference data client. The week 0 answers
+above still hold. Four further things were established, three of which
+would have been got wrong from memory.
+
+  /splits, AAPL             still 200, still a JSON array, still 5 rows,
+                            still anchored on the 2020-08-31 4:1
+
+  Rate limit headers        NONE. The provider returns no X-RateLimit
+                            headers of any kind, on success or failure.
+                            The limit is therefore not discoverable from
+                            a response and cannot be backed off from.
+
+  Unknown or unsubscribed   HTTP 402, NOT an empty array. This is the
+  symbol                    important one. On the free tier, "we cannot
+                            check this symbol" and "this symbol has no
+                            splits" are different answers, and the second
+                            is much rarer than expected.
+
+  402 body                  PLAIN TEXT, not JSON:
+                            "Premium Query Parameter: 'Special Endpoint :
+                            This value set for 'symbol' is not available
+                            under your current subscription..."
+                            A JSON parser pointed at it throws.
+
+  401 body (bad key)        JSON: {"Error Message": "Invalid API KEY..."}
+                            So the provider signals failure two different
+                            ways, in two different formats, and a client
+                            has to handle both.
+
+CONSEQUENCES FOR THE DESIGN
+
+  Because a 402 and an empty result are indistinguishable if you only
+  store the rows that came back, the fetcher records the fetch itself in
+  reference_data_fetch. That is what lets reconciliation say "checked,
+  no split exists" rather than "no split found", which are different
+  claims and only one of them rules a corporate action out.
+
+  Because there are no rate limit headers, basis.fmp.daily-request-budget
+  is a ceiling the application imposes rather than one it derives, and
+  refresh spends it on symbols with an open break first.
+
+STILL OPEN
+
+  Stated free-tier request limit: ____ per ____
+
+  Not answerable from the API: no headers, and no error was provoked by
+  the handful of requests this addendum cost. Read it off the FMP
+  dashboard and set basis.fmp.daily-request-budget to match. The default
+  of 50 is a guess chosen to be small.
