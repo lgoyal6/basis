@@ -14,7 +14,7 @@ Instead of "you have 30 fewer shares than expected", you get "that is a 4-to-1 r
 
 ## Status
 
-Week 3. Ledger core, distributions, transfers, and corporate actions.
+Week 4. Ledger core, distributions, transfers, corporate actions, reconciliation.
 
 - Multi-commodity double-entry postings, lot-level cost basis, and
   FIFO/LIFO/HIFO/specific-lot selection
@@ -24,8 +24,26 @@ Week 3. Ledger core, distributions, transfers, and corporate actions.
   without changing what it is worth
 - All eight invariants, asserted over generated histories after every step
 
+- Reconciliation against a broker position snapshot, producing breaks with a
+  probable cause attached
+
 Every event the ledger declares is now handled. Still to come: statement parsers,
-reconciliation and break records, and cash in lieu of fractional shares. No web layer.
+and cash in lieu of fractional shares. No web layer.
+
+### What a break looks like
+
+Given a history that never applied Apple's 2020 split, and a statement saying 40
+shares where basis computed 10:
+
+```
+2026-03-31 Assets:Broker:IBKR:AAPL AAPL QUANTITY_MISMATCH: broker 40, computed 10.
+The broker reports 4 for 1 of what basis computed, and AAPL had a 4 for 1 split
+effective 2026-02-20 that this history never applied.
+Apply the 4 for 1 split of AAPL dated 2026-02-20 and reconcile again.
+```
+
+Without reference data the same break still finds the ratio, says so is arithmetic
+rather than evidence, and is marked not confident. basis does not guess.
 
 See `docs/FEASIBILITY.md` for the week 0 feasibility gate and
 `docs/ARCHITECTURE.md` for every design decision and why it was taken.

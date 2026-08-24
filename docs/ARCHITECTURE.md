@@ -545,3 +545,75 @@ permitted subclasses off the sealed interface so the test suite refuses it too.
 What is still missing is not an event. It is cash in lieu of fractional shares,
 which needs a field on `ReverseSplit` rather than a new type, and which the
 settlement rule in section 16 is already shaped to handle correctly once it exists.
+
+## 21. Reconciliation, and why the cause is the product
+
+Comparing two numbers is a subtraction. The reason to build a ledger first is so
+that when they differ, basis can say something about why.
+
+### Absence has to mean something definite, and the parser has to say what
+
+A position report that lists securities and omits a holding is saying the holding
+is gone. The same report omitting the cash line is usually saying nothing about
+cash at all, because plenty of position reports do not carry it. Both are silence,
+and they mean opposite things.
+
+Options were to guess from context, to always treat absence as zero, or to make the
+snapshot declare its own scope. Picked the third: `BrokerSnapshot` carries a
+`SnapshotScope`, and the reconciler skips cash entirely unless the snapshot says it
+covers cash. The parser knows what was on the page; the reconciler does not, and a
+reconciler that guesses produces breaks that are its own fault.
+
+This was found by a test rather than by design. The first run raised a cash break
+on every history whose statement listed only securities.
+
+### A ratio is only evidence if an issuer would have declared it
+
+The detector reduces the two share counts to a fraction exactly, by scaling both to
+whole numbers and dividing by their greatest common divisor. No tolerance anywhere:
+comparing against a rounded target makes the answer depend on how close is close
+enough, and on a position of ten million shares that question has no good answer.
+
+The hard part is not finding the fraction, it is deciding which fractions mean
+anything. Every pair of share counts reduces to something, so accepting any small
+fraction turns every missing purchase into a confidently mis-explained split. 137
+for 100 is a perfectly good fraction and no company has ever declared it.
+
+The rule is therefore shaped like a corporate action rather than like a fraction:
+n for 1 up to 1000, 1 for n up to 1000, or a two sided ratio where both sides are
+10 or less. Reverse splits of stock on its way out really do reach 1 for 1000; two
+sided ratios really do stop at about 9 for 10.
+
+### A suspicion and a finding are different things, and are labelled differently
+
+Arithmetic alone gets "the broker reports 4 for 1 of what basis computed, which is
+the shape of an unapplied split, and no split of AAPL is on record in that window,
+so this is arithmetic and not evidence". A matching split in `reference_data` gets
+"there is a 4 for 1 split effective 2020-08-31 that this history never applied,
+apply it and reconcile again", and is marked confident.
+
+The window searched is from the earliest open lot's acquisition date to the
+snapshot date, because a split before the shares were bought cannot be the one that
+was missed. That has its own test.
+
+`ProbableCause.confident` is stored, not derived on read, because it is the
+difference between something to act on and something to check first.
+
+### Reference data is read through SQL, not parsed in Java
+
+`reference_data.payload` keeps the provider's JSON as it arrived, and the two
+fields reconciliation needs come out with `payload->>'numerator'`. That avoids a
+JSON parsing dependency, and more importantly it means a change in what basis needs
+from a split does not require refetching anything. Week 0 established that the free
+tier caps how many symbols can be refreshed per day, so refetching is the expensive
+operation to design against.
+
+Caching is an upsert on the natural key, so refreshing a symbol is safe to repeat
+and a corrected ratio replaces the one that was wrong.
+
+### The floating point ban now covers everything, not just the domain
+
+Widened from `com.basis.domain` to `com.basis` when reconciliation arrived.
+Deciding whether two share counts differ by exactly 4 to 1 is precisely the
+arithmetic that looks fine in floating point right up until a position is large
+enough that it is not.
