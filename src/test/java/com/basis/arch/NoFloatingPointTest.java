@@ -18,7 +18,7 @@ import com.tngtech.archunit.lang.SimpleConditionEvent;
 import java.util.Set;
 
 /**
- * Binary floating point is banned from the domain.
+ * Binary floating point is banned everywhere in basis.
  *
  * <p>A ledger that ever touches {@code double} has already lost: 0.1 + 0.2 is not 0.3,
  * so a position built from fractional shares stops reconciling against the broker for
@@ -30,9 +30,13 @@ import java.util.Set;
  * cases: {@code BigDecimal.valueOf(double)}, {@code BigDecimal.doubleValue()} and
  * {@code Math.random()} would each pass a signature-only check while quietly
  * introducing binary rounding into a cost basis.
+ *
+ * <p>Widened from the domain to every package once reconciliation arrived. Deciding
+ * whether two share counts differ by exactly 4 to 1 is precisely the kind of arithmetic
+ * that looks fine in floating point until a position is large enough for it not to be.
  */
-@AnalyzeClasses(packages = "com.basis.domain", importOptions = ImportOption.DoNotIncludeTests.class)
-class DomainHasNoFloatingPointTest {
+@AnalyzeClasses(packages = "com.basis", importOptions = ImportOption.DoNotIncludeTests.class)
+class NoFloatingPointTest {
 
     private static final Set<String> BANNED = Set.of(
             "double", "float", "double[]", "float[]",
@@ -40,7 +44,7 @@ class DomainHasNoFloatingPointTest {
             "java.util.OptionalDouble", "java.util.stream.DoubleStream");
 
     @ArchTest
-    static final ArchRule domain_declares_no_double_or_float =
+    static final ArchRule no_class_declares_a_double_or_float =
             classes().should(new ArchCondition<>("declare no double or float") {
                 @Override
                 public void check(JavaClass clazz, ConditionEvents events) {
@@ -62,7 +66,7 @@ class DomainHasNoFloatingPointTest {
             });
 
     @ArchTest
-    static final ArchRule domain_never_calls_floating_point_arithmetic =
+    static final ArchRule no_class_calls_floating_point_arithmetic =
             classes().should(new ArchCondition<>("never call a method that takes or returns double or float") {
                 @Override
                 public void check(JavaClass clazz, ConditionEvents events) {

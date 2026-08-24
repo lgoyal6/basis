@@ -68,13 +68,26 @@ class CrashRecoveryTest {
     }
 
     @Test
-    @DisplayName("flyway applied every migration")
-    void migrationsApplied() {
+    @DisplayName("flyway applied every migration on disk, in order, with none skipped")
+    void migrationsApplied() throws Exception {
+        List<String> onDisk = new java.util.ArrayList<>();
+        for (var resource : new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
+                .getResources("classpath:db/migration/V*.sql")) {
+            String name = java.util.Objects.requireNonNull(resource.getFilename());
+            onDisk.add(name.substring(1, name.indexOf("__")));
+        }
+        onDisk.sort(java.util.Comparator.comparingInt(Integer::parseInt));
+
         List<String> applied = db.sql("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank")
                 .query(String.class)
                 .list();
 
-        assertThat(applied).containsExactly("1", "2", "3", "4", "5", "6");
+        // Compared against the files rather than a hardcoded list, so adding a migration
+        // does not silently require editing the test that is supposed to notice.
+        assertThat(applied)
+                .as("every migration on the classpath was applied, in file order")
+                .containsExactlyElementsOf(onDisk);
+        assertThat(applied).isNotEmpty();
     }
 
     @Test
