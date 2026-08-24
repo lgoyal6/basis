@@ -5,8 +5,12 @@ import com.basis.domain.Money;
 import com.basis.domain.Quantity;
 import com.basis.ledger.LedgerState;
 import com.basis.ledger.PositionKey;
+import com.basis.reference.SymbolMapping;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,14 +33,20 @@ import java.util.Optional;
 public final class Reconciler {
 
     private final SplitCalendar splits;
+    private final SymbolMapping renames;
 
     public Reconciler(SplitCalendar splits) {
+        this(splits, SymbolMapping.empty());
+    }
+
+    public Reconciler(SplitCalendar splits, SymbolMapping renames) {
         this.splits = splits;
+        this.renames = renames;
     }
 
     /** Reconciliation with no reference data: ratios are reported as suspicions only. */
     public static Reconciler withoutReferenceData() {
-        return new Reconciler(SplitCalendar.EMPTY);
+        return new Reconciler(SplitCalendar.EMPTY, SymbolMapping.empty());
     }
 
     /**
@@ -70,7 +80,77 @@ public final class Reconciler {
             compare(state, snapshot.asOf(), key, reported.get(key), computed.getOrDefault(key, Quantity.ZERO))
                     .ifPresent(breaks::add);
         }
-        return List.copyOf(breaks);
+        return collapseRenames(breaks, snapshot.asOf());
+    }
+
+    /**
+     * Folds a rename's two halves into one break.
+     *
+     * <p>A security that changed ticker looks like two unrelated problems: a holding the
+     * broker reports and the ledger has never heard of, and a holding the ledger has that
+     * the broker has stopped reporting. Reported separately they send someone looking for a
+     * missing purchase and a missing sale, neither of which happened. The rename file is
+     * what turns them into one sentence.
+     */
+    private List<BreakRecord> collapseRenames(List<BreakRecord> breaks, LocalDate asOf) {
+        if (renames.isEmpty()) {
+            return List.copyOf(breaks);
+        }
+        List<BreakRecord> collapsed = new ArrayList<>();
+        Set<BreakRecord> absorbed = new HashSet<>();
+
+        for (BreakRecord unknownToLedger : breaks) {
+            if (unknownToLedger.type() != BreakType.UNKNOWN_TO_LEDGER || absorbed.contains(unknownToLedger)) {
+                continue;
+            }
+            for (BreakRecord staleHolding : breaks) {
+                if (staleHolding.type() != BreakType.UNKNOWN_TO_BROKER || absorbed.contains(staleHolding)) {
+                    continue;
+                }
+                if (!renames.renamedTo(staleHolding.commodity().symbol(), unknownToLedger.commodity().symbol())) {
+                    continue;
+                }
+                absorbed.add(unknownToLedger);
+                absorbed.add(staleHolding);
+                collapsed.add(renameBreak(unknownToLedger, staleHolding, asOf));
+                break;
+            }
+        }
+
+        for (BreakRecord found : breaks) {
+            if (!absorbed.contains(found)) {
+                collapsed.add(found);
+            }
+        }
+        collapsed.sort(Comparator.comparing((BreakRecord found) -> found.account().name())
+                .thenComparing(found -> found.commodity().symbol()));
+        return List.copyOf(collapsed);
+    }
+
+    private BreakRecord renameBreak(BreakRecord underNewName, BreakRecord underOldName, LocalDate asOf) {
+        String oldSymbol = underOldName.commodity().symbol();
+        String newSymbol = underNewName.commodity().symbol();
+        String when = renames.lastChangeFor(oldSymbol)
+                .map(change -> " on " + change.effective())
+                .orElse("");
+        boolean quantitiesAgree = underNewName.brokerQuantity().equals(underOldName.computedQuantity());
+
+        String explanation = "The broker reports " + underNewName.brokerQuantity() + " " + newSymbol
+                + " and basis holds " + underOldName.computedQuantity() + " " + oldSymbol + ". "
+                + oldSymbol + " was renamed to " + newSymbol + when
+                + ", so this is one position under two names"
+                + (quantitiesAgree ? " and the counts agree." : ", though the counts still differ.");
+
+        return new BreakRecord(asOf, underNewName.account(), underNewName.commodity(),
+                BreakType.IDENTITY_MISMATCH,
+                underNewName.brokerQuantity(), underOldName.computedQuantity(), null, null,
+                ProbableCause.confirmed(ProbableCause.TICKER_RENAMED, explanation,
+                        quantitiesAgree
+                                ? "Rename " + oldSymbol + " to " + newSymbol + " in the imported history and"
+                                        + " reconcile again."
+                                : "Rename " + oldSymbol + " to " + newSymbol + " in the imported history, then"
+                                        + " reconcile again to see what is left of the difference."),
+                BreakStatus.OPEN);
     }
 
     private Optional<BreakRecord> compare(

@@ -1,9 +1,15 @@
 spring:
   application:
     name: basis
-  # No web layer. basis is a batch process over an append only ledger.
+  # No web layer. basis is a command line process over an append only ledger.
   main:
     web-application-type: none
+    # A banner is fine for a service someone starts once. For a command that prints a
+    # break and exits, it is six lines of noise above the answer.
+    banner-mode: off
+    # "Starting BasisApplication..." is logged under com.basis, so quietening the root
+    # logger does not remove it. This is the switch that does.
+    log-startup-info: false
   datasource:
     url: ${BASIS_DB_URL:jdbc:postgresql://localhost:5432/basis}
     username: ${BASIS_DB_USER:basis}
@@ -32,6 +38,12 @@ basis:
     # no rate limit headers. See docs/FEASIBILITY.md.
     daily-request-budget: 50
 
+# A command prints an answer and exits. Framework startup chatter around that answer is
+# noise, so the root logger is quiet and only basis speaks. Raise it when diagnosing:
+#   --logging.level.root=INFO
 logging:
   level:
+    root: WARN
     com.basis: INFO
+  pattern:
+    console: "%-5level %msg%n"

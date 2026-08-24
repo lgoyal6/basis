@@ -14,6 +14,8 @@ import com.basis.domain.Commodity;
 import com.basis.domain.LotSelectionMethod;
 import com.basis.ledger.Ledger;
 import com.basis.ledger.LedgerAccounts;
+import com.basis.reference.SymbolChange;
+import com.basis.reference.SymbolMapping;
 import com.basis.support.Fixtures;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -356,6 +358,86 @@ class ReconcilerTest {
                 null, ""))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("cannot carry splits");
+    }
+
+    @Test
+    @DisplayName("a renamed ticker collapses two confusing breaks into one explanation")
+    void aRenameIsOneBreakNotTwo() {
+        Commodity fb = Commodity.equity("FB");
+        Commodity meta = Commodity.equity("META");
+        Ledger ledger = new Ledger();
+        ledger.record(new com.basis.domain.event.Buy(JAN_15, IBKR, "b1", "{}", fb,
+                qty("100"), Fixtures.price("200.00"), usd("0.00")));
+
+        SymbolMapping renames = SymbolMapping.of(List.of(
+                new SymbolChange("FB", "META", LocalDate.of(2022, 6, 9), "")));
+        List<BreakRecord> breaks = new Reconciler(SplitCalendar.EMPTY, renames)
+                .reconcile(ledger.state(), snapshot(BrokerPositions.held(IBKR, meta, qty("100"))));
+
+        assertThat(breaks)
+                .as("without the rename file this is a mystery holding plus a mystery disappearance")
+                .hasSize(1);
+        assertThat(breaks.get(0).type())
+                .as("the numbers agree, so calling it a quantity mismatch would be a lie")
+                .isEqualTo(BreakType.IDENTITY_MISMATCH);
+        assertThat(breaks.get(0).cause().code()).isEqualTo(ProbableCause.TICKER_RENAMED);
+        assertThat(breaks.get(0).cause().confident()).isTrue();
+        assertThat(breaks.get(0).cause().explanation())
+                .contains("FB was renamed to META on 2022-06-09")
+                .contains("the counts agree");
+        assertThat(breaks.get(0).cause().suggestedAction()).contains("Rename FB to META");
+    }
+
+    @Test
+    @DisplayName("a rename whose counts still differ says so rather than claiming it is solved")
+    void aRenameWithARemainingDifferenceIsHonest() {
+        Commodity fb = Commodity.equity("FB");
+        Commodity meta = Commodity.equity("META");
+        Ledger ledger = new Ledger();
+        ledger.record(new com.basis.domain.event.Buy(JAN_15, IBKR, "b1", "{}", fb,
+                qty("100"), Fixtures.price("200.00"), usd("0.00")));
+
+        SymbolMapping renames = SymbolMapping.of(List.of(
+                new SymbolChange("FB", "META", LocalDate.of(2022, 6, 9), "")));
+        List<BreakRecord> breaks = new Reconciler(SplitCalendar.EMPTY, renames)
+                .reconcile(ledger.state(), snapshot(BrokerPositions.held(IBKR, meta, qty("140"))));
+
+        assertThat(breaks).hasSize(1);
+        assertThat(breaks.get(0).cause().explanation()).contains("the counts still differ");
+        assertThat(breaks.get(0).cause().suggestedAction())
+                .contains("see what is left of the difference");
+    }
+
+    @Test
+    @DisplayName("without the rename file the same situation is two unexplained breaks")
+    void withoutTheFileTheRenameIsTwoBreaks() {
+        Commodity fb = Commodity.equity("FB");
+        Commodity meta = Commodity.equity("META");
+        Ledger ledger = new Ledger();
+        ledger.record(new com.basis.domain.event.Buy(JAN_15, IBKR, "b1", "{}", fb,
+                qty("100"), Fixtures.price("200.00"), usd("0.00")));
+
+        List<BreakRecord> breaks = Reconciler.withoutReferenceData()
+                .reconcile(ledger.state(), snapshot(BrokerPositions.held(IBKR, meta, qty("100"))));
+
+        assertThat(breaks).hasSize(2);
+        assertThat(breaks).extracting(BreakRecord::type)
+                .containsExactlyInAnyOrder(BreakType.UNKNOWN_TO_LEDGER, BreakType.UNKNOWN_TO_BROKER);
+    }
+
+    @Test
+    @DisplayName("an unrelated mystery holding is not swept into a rename")
+    void unrelatedHoldingsAreNotPaired() {
+        Ledger ledger = new Ledger();
+        ledger.record(buy(JAN_15, "b1", AAPL, "10", "150.00", "0.00"));
+        SymbolMapping renames = SymbolMapping.of(List.of(
+                new SymbolChange("FB", "META", LocalDate.of(2022, 6, 9), "")));
+
+        List<BreakRecord> breaks = new Reconciler(SplitCalendar.EMPTY, renames)
+                .reconcile(ledger.state(), snapshot(BrokerPositions.held(IBKR, MSFT, qty("25"))));
+
+        assertThat(breaks).hasSize(2);
+        assertThat(breaks).noneMatch(found -> found.cause().code().equals(ProbableCause.TICKER_RENAMED));
     }
 
     private static BrokerSnapshot snapshot(BrokerPosition... positions) {

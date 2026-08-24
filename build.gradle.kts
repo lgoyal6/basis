@@ -68,10 +68,11 @@ tasks.withType<Test>().configureEach {
     }
 }
 
-// basis is a batch/ledger process, not a service. No executable jar is needed yet.
+// basis is a command line process, not a service, but it still has to be runnable.
 tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar") {
-    enabled = false
+    enabled = true
+    archiveFileName = "basis.jar"
 }
 tasks.named<Jar>("jar") {
-    enabled = true
+    enabled = false
 }

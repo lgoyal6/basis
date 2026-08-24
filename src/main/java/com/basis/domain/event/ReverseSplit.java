@@ -7,8 +7,7 @@ import java.util.Objects;
 
 /**
  * A reverse stock split: {@code denominator} shares become {@code numerator}.
- * Declared in week 1, handled in week 3. See {@link Split} for why this is its own
- * event and not a ratio below one.
+ * See {@link Split} for why this is its own event and not a ratio below one.
  *
  * <p>Reverse splits are where fractional share handling stops being academic: the
  * broker usually pays cash for the remainder, which is a taxable disposal the

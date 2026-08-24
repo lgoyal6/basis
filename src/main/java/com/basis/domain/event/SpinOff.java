@@ -8,8 +8,8 @@ import java.time.LocalDate;
 import java.util.Objects;
 
 /**
- * A spin off: the parent distributes shares of a new company. Declared in week 1,
- * handled in week 3.
+ * A spin off: the parent distributes shares of a new company, and part of the parent's
+ * cost basis goes with them.
  *
  * <p>{@code parentBasisFraction} is the share of the parent's cost basis that moves to
  * the spun off entity, which the issuer publishes and no price feed can derive. This

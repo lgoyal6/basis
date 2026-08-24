@@ -7,7 +7,7 @@ import java.util.Objects;
 
 /**
  * A forward stock split, as reported by FMP {@code /splits}: numerator to
- * denominator, so Apple's 2020 split is 4 to 1. Declared in week 1, handled in week 3.
+ * denominator, so Apple's 2020 split is 4 to 1.
  *
  * <p>{@link ReverseSplit} is a separate event rather than a split with a numerator
  * below its denominator. The arithmetic is the same but the intent is not, and a

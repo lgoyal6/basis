@@ -7,7 +7,7 @@ import java.time.LocalDate;
 import java.util.Objects;
 
 /**
- * A cash distribution. Declared in week 1, handled in week 2.
+ * A cash distribution.
  *
  * <p>Gross and withheld are carried separately rather than netted, because the broker
  * reports both and the difference is exactly the sort of thing a reconciliation needs

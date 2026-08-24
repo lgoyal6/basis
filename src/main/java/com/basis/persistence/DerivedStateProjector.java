@@ -41,7 +41,9 @@ public class DerivedStateProjector {
         derived.truncate();
         LedgerState state = project();
         derived.write(state);
-        log.info("rebuilt derived state: {} positions, {} lots, {} realized gains",
+        // Debug rather than info: the caller reports this, and saying it twice is worse
+        // than saying it once.
+        log.debug("rebuilt derived state: {} positions, {} lots, {} realized gains",
                 state.positions().size(), state.allLots().size(), state.realizedGains().size());
         return state;
     }

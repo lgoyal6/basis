@@ -31,6 +31,13 @@ public record ProbableCause(String code, String explanation, String suggestedAct
     public static final String MISSING_ACQUISITION = "MISSING_ACQUISITION";
     public static final String MISSING_DISPOSAL = "MISSING_DISPOSAL";
     public static final String UNKNOWN_HOLDING = "UNKNOWN_HOLDING";
+
+    /**
+     * The broker reports a security the ledger has never seen, the ledger holds one the
+     * broker no longer reports, and the rename file says they are the same company. Two
+     * confusing breaks collapse into one explanation.
+     */
+    public static final String TICKER_RENAMED = "TICKER_RENAMED";
     public static final String STALE_HOLDING = "STALE_HOLDING";
     public static final String BASIS_DRIFT = "BASIS_DRIFT";
 

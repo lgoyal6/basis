@@ -9,5 +9,10 @@ public enum BreakType {
     /** The broker reports a position the ledger has never heard of. */
     UNKNOWN_TO_LEDGER,
     /** The ledger holds a position the broker does not report. */
-    UNKNOWN_TO_BROKER
+    UNKNOWN_TO_BROKER,
+    /**
+     * Both sides hold the same thing under different names. The numbers may agree
+     * perfectly; what disagrees is the identity of the security.
+     */
+    IDENTITY_MISMATCH
 }

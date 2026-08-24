@@ -39,7 +39,10 @@ public record BreakRecord(
         Objects.requireNonNull(computedQuantity, "computedQuantity");
         Objects.requireNonNull(cause, "cause");
         Objects.requireNonNull(status, "status");
-        if (brokerQuantity.equals(computedQuantity) && brokerAmount == null && computedAmount == null) {
+        // An identity mismatch is exempt: a renamed security can agree on every number and
+        // still be a break, because what the two sides disagree about is what it is called.
+        if (type != BreakType.IDENTITY_MISMATCH
+                && brokerQuantity.equals(computedQuantity) && brokerAmount == null && computedAmount == null) {
             throw new IllegalArgumentException("a break has to disagree about something, but "
                     + commodity + " in " + account + " agrees on quantity and states no amounts");
         }

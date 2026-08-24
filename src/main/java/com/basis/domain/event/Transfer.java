@@ -8,8 +8,7 @@ import java.time.LocalDate;
 import java.util.Objects;
 
 /**
- * Movement of cash or securities between accounts, including in and out of the
- * system. Declared in week 1, handled in week 2.
+ * Movement of cash or securities between accounts, including in and out of the system.
  *
  * <p>A securities transfer has to carry its lots across, or the receiving account
  * loses its acquisition dates and every later disposal reports the wrong holding

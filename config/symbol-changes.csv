@@ -1,0 +1,16 @@
+# Ticker renames, maintained by hand.
+#
+# The market data provider's symbol change endpoint is paywalled: the week 0
+# feasibility probe got HTTP 402 from every candidate path for it. See
+# docs/FEASIBILITY.md question 3. Until that changes, renames live here.
+#
+# Format:  old_symbol,new_symbol,effective_date,note
+# The date is the first day the new ticker was in use. Blank lines and lines
+# starting with # are ignored.
+#
+# This file is not exhaustive and is not meant to be. Add a row when a break
+# tells you one is missing: an unexplained holding on one side and an
+# unexplained disappearance on the other, for the same company, is a rename.
+
+old_symbol,new_symbol,effective_date,note
+FB,META,2022-06-09,Facebook Inc renamed to Meta Platforms Inc
