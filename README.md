@@ -14,16 +14,18 @@ Instead of "you have 30 fewer shares than expected", you get "that is a 4-to-1 r
 
 ## Status
 
-Week 2. Ledger core plus cash distributions and movement between accounts.
+Week 3. Ledger core, distributions, transfers, and corporate actions.
 
 - Multi-commodity double-entry postings, lot-level cost basis, and
   FIFO/LIFO/HIFO/specific-lot selection
 - Buys, sells, fees, opening balances, cash dividends with withholding, and
   transfers that carry their lots so the holding period does not restart
-- The seven invariants that hold it together, asserted over generated histories
-  after every step
+- Splits, reverse splits and stock dividends, which restate a share count without
+  changing what the position is worth
+- All eight invariants, asserted over generated histories after every step
 
-No parsers, no web layer, no corporate actions yet.
+Still to come: spin offs, statement parsers, reconciliation and break records.
+No web layer.
 
 See `docs/FEASIBILITY.md` for the week 0 feasibility gate and
 `docs/ARCHITECTURE.md` for every design decision and why it was taken.
@@ -37,10 +39,8 @@ tests).
 JAVA_HOME=/path/to/jdk-21 ./gradlew test
 ```
 
-One test fails on purpose: `CorporateActionValuePreservationTest` is invariant 8,
-corporate action value preservation, which is week 3 work. It fails rather than
-being skipped so the gap shows up in every run instead of hiding behind a green
-tick. Exclude it with `-PexcludeTags=week3`. Anything else red is a regression.
+The suite is fully green. Invariant 8, corporate action value preservation, was a
+deliberately failing placeholder through week 2 and is now a real property.
 
 ## License
 

@@ -398,3 +398,101 @@ dividends" is not something anyone can argue with a broker about. "You received
 Withholding is an expense rather than a prepaid tax asset. basis is not a tax
 product, so it has nowhere to eventually apply a credit from, and calling withheld
 tax an asset would imply a recoverability this ledger has no way to assess.
+
+## 19. A corporate action re-lots the position, and the residue is booked
+
+A split, a reverse split and a stock dividend all do one thing: restate a share
+count without changing what the position is worth. They share one implementation,
+`Relotting`, so the three cannot drift apart.
+
+### Dispose and reopen, rather than mutate
+
+A lot is immutable and `posting` is append-only, so a restatement disposes of each
+open lot in full and reopens it at the new quantity. That keeps the whole change
+expressible as postings, which is what lets the projector rebuild it and what
+keeps invariant 7 true. Mutating a lot in place would put state in the derived
+tables that the ledger could not reproduce.
+
+Each reopened lot carries the original acquisition date. This is not a detail: a
+split does not restart a holding period, and dating the new lot to the split would
+turn a long term gain into a short term one on every later disposal. It is asserted
+directly, both on a worked example and as a property over generated positions.
+
+### The restated unit cost comes from the basis, not from the ratio
+
+Two ways to compute the new unit cost:
+
+- **(a) Divide the old cost by the ratio.** `150.00 / 4 = 37.50`. Obvious, and
+  wrong in general: the quotient is rounded to six places first, and that error is
+  then multiplied by the new share count. A large position loses basis for a reason
+  nobody can point at.
+- **(b) Divide the lot's basis by the new quantity.** The number that has to
+  survive is the basis, so make the basis the input.
+
+Picked **(b)**. It puts the single unavoidable rounding where it does the least
+damage, and it makes the common case exact.
+
+### The residue is booked to equity, not absorbed
+
+Even under (b), six decimal places of unit cost cannot always reproduce a basis to
+the cent. The error is bounded by `quantity * 5e-7` dollars plus half a cent per
+lot, so it is invisible below about ten thousand shares and real above it. Two
+million shares at `0.007777`, split three for one, leaves a basis of `15554.00`
+spread over six million shares: `0.002592333...` per share, of which scale 6 holds
+`0.002592`, and the missing third of a millionth multiplies up to exactly `2.00`.
+
+Options:
+
+- **(a) Let the position's basis absorb it.** Simplest, and it makes a split
+  silently change what a position cost. For a tool whose entire output is an
+  argument with a broker about cost basis, that is the worst possible failure: it
+  manufactures a break out of arithmetic.
+- **(b) Fragment the lot**, splitting the restated shares into two lots whose costs
+  sum exactly to the basis. Exact, and it destroys lot identity, which specific-lot
+  disposal depends on.
+- **(c) Track basis in minor units on the lot** and make unit cost a derived,
+  display-only value. Exact, no residue at all. This is what a broker's cost basis
+  engine does. It also contradicts the mandate's phrasing of invariant 4 and adds a
+  field whose only job is absorbing rounding.
+- **(d) Book the residue to `Equity:Rounding:CorporateActions`** as the
+  transaction's plug.
+
+Picked **(d)** for now. It keeps every cent inside the ledger, visible and
+queryable, and it makes invariant 8 exactly true as a conservation statement:
+`basis after + residue booked = basis before`. In the ordinary case the residual is
+zero and no posting is emitted at all.
+
+**(c) is the better long term answer** and this decision should be revisited if
+residues ever show up in real reconciliations. It is the same fix section 15
+already identified for basis conservation across partial disposals, and doing it
+once would close both gaps. It was not done here because it is a domain-wide change
+and the mandate states invariant 4 in terms of quantity times unit cost.
+
+### Two smaller decisions
+
+**A stock dividend is a ratio, not a new lot.** Receiving 20 shares on a holding of
+80 is a 100 for 80 restatement. Booking the free shares as their own zero cost lot
+would be simpler and would report the wrong basis on every later partial disposal,
+because free shares do not add basis, they dilute the basis already there.
+
+**A forward split must increase the count and a reverse split must reduce it**,
+enforced in the constructors. The arithmetic is identical either way, so nothing
+technical requires the distinction. What requires it is that a parser mapping a
+1 for 8 reverse split onto `Split` would produce a share count wrong by a factor of
+64 and no test would notice. Refusing it at construction is cheaper than detecting
+it later.
+
+### What is still missing
+
+A reverse split that leaves a fractional share is left holding the fraction. Real
+brokers pay cash in lieu, which is a taxable disposal of that fraction and is
+frequently not labelled as one on the statement. `ReverseSplit` has no field for
+the cash paid, so this cannot be booked yet. The settlement rule in section 16 is
+already shaped to handle it correctly once the field exists: cash reaching a real
+cash balance is what makes a disposal realize something, and cash in lieu does
+exactly that.
+
+`SpinOff` remains unhandled. It is the only event that allocates basis across two
+commodities, and the allocation fraction is published by the issuer rather than
+derivable from any price feed, which is why it is the event most likely to raise a
+break and ask rather than guess.
