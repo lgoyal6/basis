@@ -43,7 +43,18 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 tasks.withType<Test>().configureEach {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        // -PexcludeTags=week3 drops the invariant 8 placeholder, which fails on purpose.
+        // Useful for a CI gate; the default run keeps it red so the gap stays visible.
+        val excluded = (findProperty("excludeTags") as String?)
+            ?.split(",")
+            ?.map(String::trim)
+            ?.filter(String::isNotEmpty)
+            .orEmpty()
+        if (excluded.isNotEmpty()) {
+            excludeTags(*excluded.toTypedArray())
+        }
+    }
     testLogging {
         events("passed", "skipped", "failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
