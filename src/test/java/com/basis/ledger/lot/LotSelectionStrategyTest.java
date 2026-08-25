@@ -160,12 +160,14 @@ class LotSelectionStrategyTest {
     }
 
     @Test
-    @DisplayName("average cost on a mutual fund is permitted but unimplemented, a different refusal")
-    void averageCostOnAMutualFundIsUnimplementedNotForbidden() {
+    @DisplayName("average cost on a mutual fund is permitted, and is an election rather than a selection")
+    void averageCostOnAMutualFundIsAnElection() {
         assertThatThrownBy(() -> averageCost(VTSAX))
+                .as("eligible, so this is not the permanent refusal an equity gets")
                 .isInstanceOf(UnsupportedOperationException.class)
                 .isNotInstanceOf(LotSelectionException.class)
-                .hasMessageContaining("not implemented");
+                .hasMessageContaining("not a way of selecting lots")
+                .hasMessageContaining("apply average-cost");
     }
 
     @Test
