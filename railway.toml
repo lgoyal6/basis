@@ -1,0 +1,20 @@
+# Railway deployment.
+#
+# The database holds public market data and anonymous counters. It never holds anything
+# somebody uploaded: those live in memory for two hours and are deleted on request. See
+# PRIVACY.md, and SessionStore for the code that makes it true.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Flyway runs at startup and the app refuses to serve until migrations succeed, so a failed
+# migration is a failed deploy rather than a running instance against the wrong schema.
+startCommand = "sh -c 'exec java $JAVA_OPTS -Dserver.port=$PORT -jar basis.jar serve'"
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+# A crash loop should stop, not continue forever. Ten attempts is enough to ride out a
+# database that is still starting and few enough to notice.
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
