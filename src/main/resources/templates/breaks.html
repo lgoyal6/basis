@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page('Your breaks', ~{::main})}">
+<main>
+  <section class="summary">
+    <h1 th:if="${result.isClean()}">Your broker and your history agree.</h1>
+    <h1 th:unless="${result.isClean()}">
+      <span th:text="${result.breaks().size()}">3</span> disagreement<span
+        th:if="${result.breaks().size() != 1}">s</span>.
+    </h1>
+
+    <p class="lede" th:if="${result.isClean() and result.reconciled()}">
+      basis rebuilt every position from the
+      <span th:text="${result.rowsRead()}">12</span> rows you uploaded and got the same answer
+      your broker did. That is the outcome you want, and it is worth knowing it was checked
+      rather than assumed.</p>
+
+    <p class="lede" th:unless="${result.reconciled()}">
+      You uploaded a transaction history but nothing to compare it against, so this is what
+      your own trades say you hold. Upload what your broker reports to find breaks.</p>
+
+    <p class="lede" th:if="${!result.isClean()}">
+      <span th:text="${result.confirmedCount()}">1</span> with evidence behind
+      <span th:text="${result.confirmedCount() == 1 ? 'it' : 'them'}">it</span>, listed first.
+      The rest basis can describe but not prove.</p>
+
+    <p class="meta">
+      <span th:text="${brokerName}">Fidelity</span> ·
+      <span th:text="${result.rowsRead()}">12</span> rows ·
+      <span th:text="${result.transactions()}">12</span> transactions ·
+      <span th:text="${result.totalMillis()}">40</span> ms
+      <span th:if="${upload.demo()}" class="badge">demo data</span>
+    </p>
+
+    <details class="stages">
+      <summary>What basis did</summary>
+      <ol>
+        <li th:each="s : ${result.stages()}">
+          <b th:text="${s.name()}">Parse</b>
+          <span th:text="${s.detail()}">12 rows</span>
+          <i th:text="${s.millis()} + ' ms'">4 ms</i>
+        </li>
+      </ol>
+    </details>
+  </section>
+
+  <section class="questions" th:if="${!result.ambiguities().isEmpty()}">
+    <h2>basis needs you to decide</h2>
+    <p class="lede">These have the shape of a corporate action, but nothing basis could check
+      confirms one. It will not guess, because guessing wrong here puts a wrong cost basis on
+      every share you own.</p>
+
+    <article class="question" th:each="q : ${result.ambiguities()}">
+      <p class="prompt" th:text="${q.prompt()}">What happened?</p>
+      <div class="options">
+        <form method="post" th:action="@{/resolve}" th:each="o : ${q.options()}">
+          <input type="hidden" name="kind" th:value="${o.kind()}">
+          <input type="hidden" name="symbol" th:value="${q.symbol()}">
+          <input type="hidden" name="detail" th:value="${o.detail()}">
+          <input type="hidden" name="on" th:value="${q.on()}">
+          <button type="submit" th:classappend="${o.kind().isEmpty()} ? 'plain' : 'choice'">
+            <b th:text="${o.label()}">A 4 for 1 split</b>
+            <span th:text="${o.consequence()}">What this would do</span>
+          </button>
+        </form>
+      </div>
+    </article>
+  </section>
+
+  <section class="breaks" th:if="${!result.breaks().isEmpty()}">
+    <div class="breaks-head">
+      <h2>Breaks</h2>
+      <a class="export" th:href="@{/breaks.csv}">Download as CSV</a>
+    </div>
+
+    <article class="break" th:each="b : ${result.breaks()}"
+             th:classappend="${b.cause().confident()} ? 'confirmed' : 'suspected'">
+      <div class="bhead">
+        <span class="sym" th:text="${b.commodity().symbol()}">AAPL</span>
+        <span class="type" th:text="${b.type()}">QUANTITY_MISMATCH</span>
+        <span class="conf" th:text="${b.cause().confident()} ? 'confirmed' : 'suspected'">confirmed</span>
+      </div>
+      <p class="numbers">
+        Your broker reports <b th:text="${b.brokerQuantity()}">80</b>,
+        basis computed <b th:text="${b.computedQuantity()}">20</b>.
+      </p>
+      <p class="cause"><code th:text="${b.cause().code()}">UNAPPLIED_SPLIT</code></p>
+      <p class="why" th:text="${b.cause().explanation()}">Because of a split.</p>
+      <p class="do" th:if="${!b.cause().suggestedAction().isEmpty()}"
+         th:text="${b.cause().suggestedAction()}">Apply the split.</p>
+    </article>
+  </section>
+
+  <section class="positions" th:if="${!result.positions().isEmpty()}">
+    <h2>What your history says you hold</h2>
+    <table>
+      <thead><tr><th>Symbol</th><th>Quantity</th><th>Cost basis</th><th>Lots</th></tr></thead>
+      <tbody>
+        <tr th:each="p : ${result.positions()}">
+          <td th:text="${p.symbol()}">AAPL</td>
+          <td class="num" th:text="${p.quantity()}">20</td>
+          <td class="num" th:text="${p.costBasis()}">6000.00</td>
+          <td class="num" th:text="${p.lots()}">1</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="cleanup">
+    <form method="post" th:action="@{/delete}">
+      <button type="submit" class="danger">Delete my data now</button>
+    </form>
+    <p class="tiny">Otherwise it is deleted automatically
+      <span th:if="${expiresAt}">at <span th:text="${#temporals.format(expiresAt, 'HH:mm')} + ' UTC'">14:00 UTC</span></span>.
+      It was never written to a database.</p>
+  </section>
+</main>
+</html>

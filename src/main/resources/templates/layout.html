@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org" th:fragment="page(title, body)">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title th:text="${title} + ' | basis'">basis</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9878;</text></svg>">
+  <link rel="stylesheet" th:href="@{/basis.css}">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" th:href="@{/}">basis<span>.</span></a>
+      <nav>
+        <a th:href="@{/privacy}">What happens to my data</a>
+        <a href="https://github.com/lgoyal6/basis">Source</a>
+      </nav>
+    </div>
+  </header>
+  <main class="wrap" th:replace="${body}"></main>
+  <footer class="wrap">
+    <p>basis recomputes your positions from your own transaction history and tells you where it
+      disagrees with your broker. It is not tax advice and it does not file anything.</p>
+  </footer>
+</body>
+</html>

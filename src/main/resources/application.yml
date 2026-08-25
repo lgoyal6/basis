@@ -1,9 +1,22 @@
 spring:
+  servlet:
+    multipart:
+      # Matched to basis.web.max-bytes below. Two limits because the container
+      # rejects an oversized upload before any basis code sees it, and that
+      # rejection needs to be at the same threshold the page advertises.
+      max-file-size: 5MB
+      max-request-size: 11MB
+  thymeleaf:
+    cache: true
   application:
     name: basis
   # No web layer. basis is a command line process over an append only ledger.
   main:
-    web-application-type: none
+    # Not set here any more. This file is read by both shapes of the process, and a value
+    # pinned in config beats the one SpringApplicationBuilder passes, so "serve" started and
+    # then exited without ever opening a port. The CLI now asks for NONE explicitly in code,
+    # next to the exit-code handling that depends on it.
+    web-application-type: ${BASIS_WEB_TYPE:none}
     # A banner is fine for a service someone starts once. For a command that prints a
     # break and exits, it is six lines of noise above the answer.
     banner-mode: off
@@ -27,6 +40,12 @@ spring:
 # the week 0 probe. Export it before running, for example:
 #   set -a; source .env; set +a
 basis:
+  # Only read under "basis serve". A public endpoint's limits are an operational decision
+  # rather than a design one, so they live in config where they can be changed per deploy.
+  web:
+    max-bytes: 5242880
+    max-rows: 50000
+    session-minutes: 120
   fmp:
     base-url: https://financialmodelingprep.com/stable
     key: ${FMP_KEY:}
