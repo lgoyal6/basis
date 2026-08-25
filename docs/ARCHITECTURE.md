@@ -1200,3 +1200,98 @@ to "what did trading cost me" would have included charges no trade caused.
 Standalone charges now go to `Expenses:Fees`. `Expenses:Commissions` keeps only what `Buy` and
 `Sell` put there, which is the commission on an actual trade. This is the same argument as 29.1,
 applied two lines away from it, and leaving it inconsistent was not an option worth defending.
+
+## 30. The web layer, and why it is not a second implementation
+
+For most of this project's life the answer to "should there be a web app" was no, and section
+13 of the original brief said so: no frontend. That was a scope decision, and it was read for
+too long as a design principle. It is not one. The reasoning that eventually mattered runs the
+other way: the no-account upload flow is not a demo of basis, it is the only way anybody will
+ever use it. Nobody uploads a brokerage history to a service that demands a signup first, and
+without users there are no breaks found, and the entire claim of the project is a number of
+real errors found in real accounts.
+
+### 30.1 One implementation of the arithmetic
+
+The objection worth taking seriously was never "a web app is wrong". It was that a browser
+computing cost basis in JavaScript would be a second implementation of money arithmetic, able
+to disagree with the Java one, in a project whose whole claim is that the numbers are right.
+
+That objection does not apply to a server rendering HTML. `BreakFinder` calls the same
+`StatementParser`, the same `StatementRowMapper`, the same `Ledger` and the same `Reconciler`
+the CLI calls. There is no arithmetic in the web package at all: it parses a multipart upload,
+calls the ledger, and formats what came back. A gain shown in the browser and a gain printed
+by the CLI over the same file are the same number because they are the same code reaching it.
+
+The rule this sets, and it is the one to defend: **no computation in the web layer, ever.** If
+a page needs a number the ledger does not expose, the fix is to expose it from the ledger.
+
+### 30.2 Uploads live in memory, not in Postgres
+
+Options considered:
+
+1. **A table with a session id and a TTL.** Conventional, survives restarts, scales across
+   instances. Rejected because the page has to promise deletion, and deleting a row does not
+   delete it: there are backups, replicas and a write ahead log. The promise would be as good
+   as the weakest of those, and unverifiable by anybody reading the code.
+2. **Temporary files on disk.** Same problem with worse ergonomics.
+3. **A bounded in-memory map with a TTL and an explicit delete.** Chosen.
+
+The claim becomes checkable by reading one file. The costs are real and stated in `PRIVACY.md`
+rather than hidden: a redeploy drops every open session, and the service cannot run more than
+one instance. Both are acceptable for a flow shaped upload, look, leave. If it ever needs to
+survive a restart, that is a decision to take deliberately and write down here, not a
+refactor to slip in.
+
+Two consequences follow. The store is capped, because an uncapped map behind a public endpoint
+is a memory exhaustion attack with extra steps. And expiry is enforced on read as well as
+swept on a schedule, so an expired upload is unreachable the instant it expires rather than
+whenever the sweeper next runs.
+
+### 30.3 Turning a refusal into a question
+
+The reconciler will not guess. When it finds a ratio it cannot back with evidence it says so
+and stops, which is right for a ledger and a dead end for a person: they often know the answer,
+because it is on the broker notice in their other tab.
+
+So `Ambiguities` presents the candidate readings and lets them choose, and the choice is
+applied as an ordinary asserted corporate action through the same path `basis apply` uses. Two
+things keep this honest. Confirmed breaks are never offered as a choice, because inventing
+alternatives would be inventing doubt basis does not have. And every question includes "it was
+something missing instead", which applies nothing: without it, the interface would pressure
+somebody into explaining a gap in their history with a split that never happened, and a wrong
+split restates the cost basis of every share they own.
+
+Choices are validated before they are stored. Applying one that the ledger refuses used to
+save it to the session and then throw on every subsequent page load, turning one bad decision
+into a results page that could never be opened again.
+
+### 30.4 The demo carries its own split history
+
+The demo has to show a break basis can *prove*, not merely describe, which needs split
+history. Writing that into `reference_data` would put demo state in the table real uploads
+read, where a seeded row is indistinguishable from a fetched one. Fetching it would make the
+demo depend on a network call, a key and a quota, and break it exactly when somebody is
+deciding whether to trust this.
+
+So `DemoSplits` is an in-memory calendar used only for demo sessions. It holds real corporate
+actions, because proving a break against an invented one proves nothing about the lookup that
+will run on somebody's actual holdings. Demo counters are kept in a separate namespace from
+real ones throughout, since folding them together would flatter the one metric that matters.
+
+The demo statement itself is hand-designed rather than generated by `GeneratedHistory`. That
+generator exists to produce random valid histories for the invariant properties, which
+guarantees ledger consistency and guarantees nothing about which breaks appear. A demo whose
+contents vary per run can ship with nothing interesting in it. This is a deliberate departure
+from the instruction to reuse it, recorded here rather than made quietly.
+
+### 30.5 What the counters may record
+
+Counts by category and nothing else: uploads parsed by broker, failures by reason, breaks by
+kind, ambiguities surfaced and resolved, first-pass clean reconciles. No symbols, no
+quantities, no filenames, no addresses. Counter names come from a fixed vocabulary and
+free text is slugged and truncated, so a crafted upload cannot create a counter per request or
+write arbitrary text into the metrics.
+
+The question being answered is whether this finds real errors, which is a question about how
+many and not about whose.
