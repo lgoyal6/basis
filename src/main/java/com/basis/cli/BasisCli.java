@@ -146,6 +146,7 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
             case "settle" -> settle(rest, args);
             case "reconcile" -> reconcile(rest, args);
             case "refresh-splits" -> refreshSplits(rest);
+            case "cache-split" -> cacheSplit(rest, args);
             case "rebuild" -> rebuild();
             case "recover" -> recover();
             default -> {
@@ -550,6 +551,31 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
         return BREAKS_FOUND;
     }
 
+    /**
+     * Records a split by hand, without a provider.
+     *
+     * <p>The provider is one source of truth and not the only one. It can be wrong, it can
+     * be paywalled for the symbol you care about, and you may not have a key at all. Without
+     * this there was no way to tell basis about a split it could not fetch, which left every
+     * such break stuck at "suspected" forever: {@code apply break} refuses a suspicion on
+     * purpose, so a break nothing could ever confirm was a break nothing could ever close.
+     *
+     * <p>The source is recorded as {@code manual} rather than as a provider name, because
+     * where a fact came from is part of the fact. A number somebody typed and a number a
+     * provider returned are different kinds of evidence, and {@code status} shows which.
+     */
+    private int cacheSplit(List<String> rest, ApplicationArguments args) {
+        String usage = "cache-split <symbol> <new:old> --on yyyy-mm-dd";
+        String symbol = requireArg(rest, 0, usage).toUpperCase(java.util.Locale.ROOT);
+        long[] ratio = AssertedEntries.ratio(requireArg(rest, 1, usage));
+        LocalDate on = on(args, usage);
+
+        referenceData.cacheSplit(symbol, on, ratio[0], ratio[1], "manual");
+        out.line("recorded a " + ratio[0] + " for " + ratio[1] + " split of " + symbol
+                + " on " + on + ", sourced as manual");
+        return OK;
+    }
+
     private int refreshSplits(List<String> rest) {
         SplitRefreshService.RefreshReport report = rest.isEmpty()
                 ? refresh.refreshStaleSymbols()
@@ -683,6 +709,8 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
         out.line("      record a human's judgement on a break");
         out.line("  reconcile <account> <positions.csv> --as-of yyyy-mm-dd [--with-cash] [--dry-run]");
         out.line("      compare a position snapshot against the ledger and record the disagreements");
+        out.line("  cache-split <symbol> <new:old> --on yyyy-mm-dd");
+        out.line("      record a split by hand, for when there is no key or the provider is wrong");
         out.line("  refresh-splits [SYMBOL...]");
         out.line("      fetch split history, by default for whichever symbols need it most");
         out.line("  rebuild");

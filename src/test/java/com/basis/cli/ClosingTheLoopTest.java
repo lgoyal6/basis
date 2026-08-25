@@ -115,6 +115,36 @@ class ClosingTheLoopTest {
     }
 
     @Test
+    @DisplayName("a split recorded by hand turns a suspicion into something apply break will act on")
+    void aHandRecordedSplitUpgradesASuspicion(@TempDir Path dir) throws Exception {
+        // Without this there was no way to tell basis about a split it could not fetch.
+        // The provider can be wrong, can paywall a symbol, or can be absent entirely with
+        // no key, and apply break refuses a suspicion on purpose. That combination left a
+        // break nothing could confirm and therefore nothing could ever close.
+        givenAPurchaseOf10Apple();
+        Path positions = write(dir, "AAPL,40\n");
+
+        run("reconcile", IBKR.name(), positions.toString(), "--as-of=" + AS_OF);
+        assertThat(printed())
+                .as("no reference data, so arithmetic and not evidence")
+                .contains("(suspected)")
+                .doesNotContain("basis apply break");
+
+        newCli();
+        assertThat(run("cache-split", "AAPL", "4:1", "--on=" + SPLIT_DATE)).isEqualTo(BasisCli.OK);
+        assertThat(printed())
+                .as("where a fact came from is part of the fact")
+                .contains("manual");
+
+        newCli();
+        run("reconcile", IBKR.name(), positions.toString(), "--as-of=" + AS_OF);
+        assertThat(printed())
+                .as("the same numbers, now with something behind them")
+                .contains("(confirmed)")
+                .contains("basis apply break");
+    }
+
+    @Test
     @DisplayName("the break id is discoverable from the output, with no database access")
     void theLoopClosesFromTheOutputAlone(@TempDir Path dir) throws Exception {
         // theWholeLoop below reads the id straight out of break_record with SQL, which is
