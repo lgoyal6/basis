@@ -1,6 +1,8 @@
 package com.basis.cli;
 
 import com.basis.domain.Account;
+import com.basis.importer.BrokerProfile;
+import com.basis.importer.BrokerProfiles;
 import com.basis.importer.ImportReport;
 import com.basis.importer.ImportService;
 import com.basis.ledger.LedgerState;
@@ -126,26 +128,23 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
     /**
      * Reads a broker statement into the ledger.
      *
-     * <p>Fidelity only, for now. The format is named on the command line rather than sniffed
-     * from the file, because guessing which broker produced a CSV and guessing wrong means
-     * importing a column of prices as quantities.
+     * <p>The broker is named on the command line rather than sniffed from the file. Guessing
+     * which broker produced a CSV and guessing wrong means importing a column of prices as
+     * quantities, which reconciles cleanly and is completely wrong.
      */
     private int importStatement(List<String> rest, ApplicationArguments args) {
-        String format = requireArg(rest, 0, "import <format> <account> <statement.csv> [--external ACCOUNT]");
-        Account account = Account.of(requireArg(rest, 1,
-                "import <format> <account> <statement.csv> [--external ACCOUNT]"));
-        Path file = Path.of(requireArg(rest, 2,
-                "import <format> <account> <statement.csv> [--external ACCOUNT]"));
+        String usage = "import <broker> <account> <statement.csv> [--external ACCOUNT]";
+        String broker = requireArg(rest, 0, usage);
+        Account account = Account.of(requireArg(rest, 1, usage));
+        Path file = Path.of(requireArg(rest, 2, usage));
 
-        if (!format.equalsIgnoreCase("fidelity")) {
-            throw new IllegalArgumentException("unknown statement format '" + format
-                    + "'. Only fidelity is supported so far.");
-        }
+        BrokerProfile profile = BrokerProfiles.load(
+                Path.of(optional(args, "brokers").orElse("config/brokers")), broker);
         Account external = Account.of(optional(args, "external").orElse("Assets:Bank:External"));
         SymbolMapping renames = SymbolMappingFile.load(
                 Path.of(optional(args, "renames").orElse("config/symbol-changes.csv")));
 
-        ImportReport report = importer.importFidelity(file, account, external, renames);
+        ImportReport report = importer.importStatement(file, profile, account, external, renames);
         out.line(report.toString());
         for (String note : report.notes()) {
             out.line("  " + note);
@@ -351,8 +350,9 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
     public static void printUsage(CliOutput out) {
         out.line("basis, a ledger that argues with your broker");
         out.blank();
-        out.line("  import fidelity <account> <statement.csv> [--external ACCOUNT]");
-        out.line("      read a broker statement into the ledger");
+        out.line("  import <broker> <account> <statement.csv> [--external ACCOUNT]");
+        out.line("      read a broker statement into the ledger. Brokers available: "
+                + String.join(", ", BrokerProfiles.available()));
         out.line("  status");
         out.line("      positions, derived state, open breaks and how current the reference data is");
         out.line("  breaks <account>");

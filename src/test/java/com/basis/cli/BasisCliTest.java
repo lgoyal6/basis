@@ -269,13 +269,16 @@ class BasisCliTest {
     }
 
     @Test
-    @DisplayName("an unknown statement format is refused rather than guessed at")
-    void refusesAnUnknownFormat(@TempDir Path dir) throws Exception {
+    @DisplayName("an unknown broker is refused, and says which ones exist")
+    void refusesAnUnknownBroker(@TempDir Path dir) throws Exception {
         Path statement = write(dir, "history.csv", "anything\n");
 
-        assertThat(run("import", "schwab", "Assets:Broker:Schwab", statement.toString()))
+        assertThat(run("import", "etrade", "Assets:Broker:Etrade", statement.toString()))
                 .isEqualTo(BasisCli.USAGE);
-        assertThat(printed()).contains("Only fidelity is supported");
+        assertThat(printed())
+                .contains("no broker profile")
+                .contains("Available: fidelity")
+                .contains("not code");
     }
 
     @Test

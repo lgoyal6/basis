@@ -58,17 +58,21 @@ public class ImportService {
     }
 
     /**
-     * Imports a Fidelity statement into an account.
+     * Imports a broker statement into an account.
      *
+     * @param profile how to read this broker's export. Nothing below this line knows which
+     *     broker it is, which is what makes a second broker a properties file.
      * @param externalAccount where deposits come from and withdrawals go, so cash entering
      *     the ledger has a source rather than appearing from nowhere
      */
-    public ImportReport importFidelity(
-            Path file, Account brokerAccount, Account externalAccount, SymbolMapping renames) {
+    public ImportReport importStatement(
+            Path file, BrokerProfile profile, Account brokerAccount, Account externalAccount,
+            SymbolMapping renames) {
 
-        List<StatementRow> rows = FidelityCsvParser.read(file);
+        List<StatementRow> rows = new StatementParser(profile).read(file);
         String source = file.getFileName().toString();
-        StatementRowMapper mapper = new StatementRowMapper(brokerAccount, externalAccount, renames, source);
+        StatementRowMapper mapper =
+                new StatementRowMapper(profile, brokerAccount, externalAccount, renames, source);
 
         // Every row is understood before anything is written. A statement with one
         // unreadable line is rejected whole, rather than half imported.
@@ -77,7 +81,7 @@ public class ImportService {
             events.addAll(mapper.toEvents(row));
         }
 
-        return record(events, rows.size(), file, brokerAccount);
+        return record(events, rows.size(), file, profile);
     }
 
     /**
@@ -86,9 +90,9 @@ public class ImportService {
      * <p>The events are applied to a ledger hydrated from what is already stored, so a sale
      * in this file can consume lots opened by a file imported last month.
      */
-    private ImportReport record(List<LedgerEvent> events, int rowsRead, Path file, Account brokerAccount) {
+    private ImportReport record(List<LedgerEvent> events, int rowsRead, Path file, BrokerProfile profile) {
         Ledger ledger = hydratedLedger();
-        long batchId = batches.open("fidelity", file.getFileName().toString(), digestOf(file));
+        long batchId = batches.open(profile.name(), file.getFileName().toString(), digestOf(file));
         List<String> notes = new ArrayList<>();
         int recorded = 0;
         int alreadyPresent = 0;

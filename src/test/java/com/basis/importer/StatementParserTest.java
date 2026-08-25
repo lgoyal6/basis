@@ -11,13 +11,19 @@ import org.junit.jupiter.api.Test;
 /**
  * Reading the file, before anything decides what it means.
  *
- * <p>The fixtures here are written to the format as understood, not captured from a real
- * export, and that is the known weakness of this parser. So the tests concentrate on the
- * things that will still matter when the exact column names turn out to be different:
- * junk around the body, commas inside quoted descriptions, columns found by name rather
- * than position, and a refusal to guess when something does not add up.
+ * <p>Driven through the real Fidelity profile from config/brokers, so these tests also
+ * check that the shipped profile parses and says what it is supposed to.
+ *
+ * <p>The fixtures are written to the format as understood, not captured from a real export,
+ * and that is the known weakness. So the tests concentrate on what will still matter when
+ * the exact column names turn out to be different: junk around the body, commas inside
+ * quoted descriptions, columns found by name rather than position, and a refusal to guess
+ * when something does not add up.
  */
-class FidelityCsvParserTest {
+class StatementParserTest {
+
+    private final StatementParser parser = new StatementParser(BrokerProfiles.load("fidelity"));
+
 
     /** A realistic export: title line, blank, header, rows, then disclaimer prose. */
     private static final List<String> STATEMENT = List.of(
@@ -34,7 +40,7 @@ class FidelityCsvParserTest {
     @Test
     @DisplayName("the header is found under the preamble, and the disclaimer below is ignored")
     void findsTheBodyBetweenTheJunk() {
-        List<StatementRow> rows = FidelityCsvParser.parse(STATEMENT, "history.csv");
+        List<StatementRow> rows = parser.parse(STATEMENT, "history.csv");
 
         assertThat(rows).hasSize(3);
         assertThat(rows).extracting(StatementRow::action)
@@ -44,7 +50,7 @@ class FidelityCsvParserTest {
     @Test
     @DisplayName("a comma inside a quoted description does not shift every column after it")
     void quotedFieldsDoNotShiftColumns() {
-        StatementRow bought = FidelityCsvParser.parse(STATEMENT, "history.csv").get(0);
+        StatementRow bought = parser.parse(STATEMENT, "history.csv").get(0);
 
         assertThat(bought.description()).isEqualTo("APPLE INC, COM");
         assertThat(bought.symbol()).isEqualTo("AAPL");
@@ -59,7 +65,7 @@ class FidelityCsvParserTest {
     @Test
     @DisplayName("columns are found by name, so a reordered export still reads correctly")
     void columnsAreFoundByName() {
-        List<StatementRow> rows = FidelityCsvParser.parse(List.of(
+        List<StatementRow> rows = parser.parse(List.of(
                 "Amount ($),Symbol,Run Date,Action,Quantity,Price ($)",
                 "-1501.00,AAPL,01/15/2026,YOU BOUGHT,10,150.00"), "reordered.csv");
 
@@ -73,7 +79,7 @@ class FidelityCsvParserTest {
     @Test
     @DisplayName("a sale's negative quantity is preserved as read, not normalised here")
     void signsAreLeftForTheMapper() {
-        StatementRow sold = FidelityCsvParser.parse(STATEMENT, "history.csv").get(1);
+        StatementRow sold = parser.parse(STATEMENT, "history.csv").get(1);
 
         assertThat(sold.quantity())
                 .as("the parser reports the page, the mapper decides what it means")
@@ -83,7 +89,7 @@ class FidelityCsvParserTest {
     @Test
     @DisplayName("an empty cell is absent, not zero")
     void emptyCellsAreNull() {
-        StatementRow dividend = FidelityCsvParser.parse(STATEMENT, "history.csv").get(2);
+        StatementRow dividend = parser.parse(STATEMENT, "history.csv").get(2);
 
         assertThat(dividend.quantity())
                 .as("a dividend has no share count, and calling it zero would be a claim")
@@ -95,7 +101,7 @@ class FidelityCsvParserTest {
     @Test
     @DisplayName("dollar signs, thousands separators and parentheses are all tolerated")
     void tolerantAboutNumberDecoration() {
-        List<StatementRow> rows = FidelityCsvParser.parse(List.of(
+        List<StatementRow> rows = parser.parse(List.of(
                 "Run Date,Action,Symbol,Quantity,Price ($),Amount ($)",
                 "01/15/2026,YOU BOUGHT,AAPL,\"1,200\",\"$1,050.25\",\"($1,260,300.00)\""), "decorated.csv");
 
@@ -111,7 +117,7 @@ class FidelityCsvParserTest {
     @Test
     @DisplayName("an as of date in the same cell is read as the transaction date")
     void handlesAsOfDates() {
-        List<StatementRow> rows = FidelityCsvParser.parse(List.of(
+        List<StatementRow> rows = parser.parse(List.of(
                 "Run Date,Action,Symbol,Quantity,Amount ($)",
                 "01/15/2026 as of 01/13/2026,YOU BOUGHT,AAPL,10,-1500.00"), "asof.csv");
 
@@ -122,7 +128,7 @@ class FidelityCsvParserTest {
     @Test
     @DisplayName("every line is kept verbatim, because that is the replay story")
     void keepsTheRawLine() {
-        StatementRow bought = FidelityCsvParser.parse(STATEMENT, "history.csv").get(0);
+        StatementRow bought = parser.parse(STATEMENT, "history.csv").get(0);
 
         assertThat(bought.raw())
                 .as("txn.source_row holds this forever so a parser bug is fixable by replay")
@@ -132,7 +138,7 @@ class FidelityCsvParserTest {
     @Test
     @DisplayName("rows are numbered from one, since Fidelity gives no row identifier")
     void rowsAreNumbered() {
-        assertThat(FidelityCsvParser.parse(STATEMENT, "history.csv"))
+        assertThat(parser.parse(STATEMENT, "history.csv"))
                 .extracting(StatementRow::ordinal)
                 .containsExactly(1, 2, 3);
     }
@@ -140,7 +146,7 @@ class FidelityCsvParserTest {
     @Test
     @DisplayName("a file that is not a Fidelity export says so instead of producing nonsense")
     void refusesAFileWithNoRecognisableHeader() {
-        assertThatThrownBy(() -> FidelityCsvParser.parse(List.of(
+        assertThatThrownBy(() -> parser.parse(List.of(
                 "date,ticker,shares", "2026-01-15,AAPL,10"), "mystery.csv"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("does not look like a Fidelity export");
@@ -149,17 +155,17 @@ class FidelityCsvParserTest {
     @Test
     @DisplayName("a header with no amount column names the missing column and where to fix it")
     void refusesAHeaderMissingARequiredColumn() {
-        assertThatThrownBy(() -> FidelityCsvParser.parse(List.of(
+        assertThatThrownBy(() -> parser.parse(List.of(
                 "Run Date,Action,Symbol,Quantity", "01/15/2026,YOU BOUGHT,AAPL,10"), "thin.csv"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("no amount column")
-                .hasMessageContaining("COLUMN_ALIASES");
+                .hasMessageContaining("column.amount");
     }
 
     @Test
     @DisplayName("a header with no transactions under it is refused, not imported as nothing")
     void refusesAnEmptyBody() {
-        assertThatThrownBy(() -> FidelityCsvParser.parse(List.of(
+        assertThatThrownBy(() -> parser.parse(List.of(
                 "Run Date,Action,Symbol,Quantity,Amount ($)",
                 "",
                 "\"Disclaimer text\""), "empty.csv"))
@@ -170,7 +176,7 @@ class FidelityCsvParserTest {
     @Test
     @DisplayName("a number that is not a number names the row and the field")
     void refusesAnUnparseableNumber() {
-        assertThatThrownBy(() -> FidelityCsvParser.parse(List.of(
+        assertThatThrownBy(() -> parser.parse(List.of(
                 "Run Date,Action,Symbol,Quantity,Amount ($)",
                 "01/15/2026,YOU BOUGHT,AAPL,ten,-1500.00"), "typo.csv"))
                 .isInstanceOf(IllegalArgumentException.class)

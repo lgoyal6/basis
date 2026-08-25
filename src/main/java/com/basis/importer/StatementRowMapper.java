@@ -13,7 +13,6 @@ import com.basis.domain.event.Fee;
 import com.basis.domain.event.LedgerEvent;
 import com.basis.domain.event.Sell;
 import com.basis.domain.event.Transfer;
-import com.basis.importer.FidelityActions.Kind;
 import com.basis.ledger.LedgerAccounts;
 import com.basis.reference.SymbolMapping;
 import java.math.BigDecimal;
@@ -42,6 +41,7 @@ public final class StatementRowMapper {
 
     private static final Currency USD = Currency.getInstance("USD");
 
+    private final BrokerProfile profile;
     private final Account brokerAccount;
     private final Account externalAccount;
     private final SymbolMapping renames;
@@ -52,7 +52,9 @@ public final class StatementRowMapper {
      *     deposit is a transfer rather than money appearing from nowhere
      */
     public StatementRowMapper(
-            Account brokerAccount, Account externalAccount, SymbolMapping renames, String source) {
+            BrokerProfile profile, Account brokerAccount, Account externalAccount,
+            SymbolMapping renames, String source) {
+        this.profile = profile;
         this.brokerAccount = brokerAccount;
         this.externalAccount = externalAccount;
         this.renames = renames;
@@ -61,12 +63,13 @@ public final class StatementRowMapper {
 
     /** @throws StatementFormatException if the row cannot be understood */
     public List<LedgerEvent> toEvents(StatementRow row) {
-        Kind kind = FidelityActions.classify(row.action())
+        ActionKind kind = profile.classify(row.action())
                 .orElseThrow(() -> new StatementFormatException(row.location(source)
                         + ": the action '" + row.action() + "' is not recognised."
-                        + " Nothing has been imported. Add the phrase to FidelityActions if it is a"
-                        + " transaction basis should understand. Known prefixes: "
-                        + String.join(", ", FidelityActions.known())));
+                        + " Nothing has been imported. If this is a transaction basis should"
+                        + " understand, add the phrase to the " + profile.name() + " profile in"
+                        + " config/brokers. Phrases it knows: "
+                        + String.join(", ", profile.knownPhrases())));
 
         return switch (kind) {
             case BUY -> List.of(buy(row));
@@ -86,9 +89,9 @@ public final class StatementRowMapper {
     }
 
     private LedgerEvent sell(StatementRow row) {
-        // Fidelity writes a sale's quantity negative. The event states it positive and the
-        // handler emits the negative postings, so the sign is normalised here rather than
-        // leaving two conventions loose in the ledger.
+        // Exports usually write a sale's quantity negative, and some write it positive with
+        // the direction only in the action text. Either way the event states it positive and
+        // the handler emits the negative postings, so one sign convention reaches the ledger.
         return new Sell(row.date(), brokerAccount, reference(row), row.asJson(source),
                 commodity(row), positiveQuantity(row), price(row), charges(row),
                 LotSelectionMethod.FIFO, List.of());
@@ -104,8 +107,8 @@ public final class StatementRowMapper {
      * A reinvested dividend is two events: the cash arrives, then it buys shares.
      *
      * <p>The distribution's size is taken from the shares bought rather than from the
-     * Amount column, because Fidelity reports the reinvestment row's amount as the cash
-     * leaving to buy the shares, which is the same number with the opposite sign.
+     * Amount column, because a reinvestment row's amount is the cash leaving to buy the
+     * shares, which is the same number with the opposite sign.
      */
     private List<LedgerEvent> reinvestment(StatementRow row) {
         Quantity shares = positiveQuantity(row);
@@ -215,10 +218,10 @@ public final class StatementRowMapper {
     /**
      * What makes two otherwise identical rows different transactions.
      *
-     * <p>Fidelity's export carries no per row identifier, so the row's position in the file
-     * is it. Combined with the verbatim line in the idempotency key, that means re-importing
-     * the same file is a no op while two genuinely separate fills of the same size at the
-     * same price on the same day stay separate.
+     * <p>Most exports carry no per row identifier, so the row's position in the file is it.
+     * Combined with the verbatim line in the idempotency key, that means re-importing the
+     * same file is a no op while two genuinely separate fills of the same size at the same
+     * price on the same day stay separate.
      */
     private static String reference(StatementRow row) {
         return "row-" + row.ordinal();
