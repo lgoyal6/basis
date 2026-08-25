@@ -101,11 +101,19 @@ CONSEQUENCES FOR THE DESIGN
   is a ceiling the application imposes rather than one it derives, and
   refresh spends it on symbols with an open break first.
 
-STILL OPEN
+ANSWERED, 2026-08-24, from the FMP dashboard
 
-  Stated free-tier request limit: ____ per ____
+  Stated free-tier request limit: 250 per day
 
-  Not answerable from the API: no headers, and no error was provoked by
-  the handful of requests this addendum cost. Read it off the FMP
-  dashboard and set basis.fmp.daily-request-budget to match. The default
-  of 50 is a guess chosen to be small.
+  Confirmed on the account page, which also shows bandwidth capped at
+  512 MB per 30 days. Not answerable from the API itself: responses carry
+  no rate limit headers, so nothing can be read and backed off from.
+
+  basis.fmp.daily-request-budget is set to 125, half the allowance, so one
+  refresh run cannot spend everything and leave nothing for a second
+  attempt the same day. Splits are cached with a 7 day refresh window, so
+  125 requests covers a portfolio of 125 symbols daily or 875 weekly,
+  which is far past what a personal ledger holds.
+
+  Bandwidth is not a constraint worth designing against: a /splits
+  response for a symbol with decades of history is under a kilobyte.
