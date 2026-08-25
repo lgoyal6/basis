@@ -32,7 +32,9 @@ public final class AverageCostLotSelection implements LotSelectionStrategy {
         if (!request.commodity().commodityClass().isAverageCostEligible()) {
             throw AverageCostNotPermittedException.of(request.commodity());
         }
-        throw new UnsupportedOperationException("average cost basis for " + request.commodity()
-                + " is eligible but not implemented. Week 1 implements FIFO, LIFO, HIFO and specific lot.");
+        throw new UnsupportedOperationException("average cost is not a way of selecting lots, it is a"
+                + " restatement of the whole position to one pooled cost per share. Elect it with"
+                + " 'basis apply average-cost' and then sell normally: an ordinary FIFO sale after the"
+                + " election is an average cost sale. See AverageCostElection.");
     }
 }

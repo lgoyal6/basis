@@ -82,6 +82,40 @@ final class Relotting {
         return List.copyOf(postings);
     }
 
+    /**
+     * Restates every lot in a position to one pooled unit cost.
+     *
+     * <p>The quantity does not change; only what each share is said to have cost. Total basis
+     * is preserved to the cent by the same residue account a split uses, and every lot keeps
+     * its acquisition date, because averaging cost does not average holding periods.
+     */
+    static List<Posting> toPooledAverage(
+            LedgerEvent event, Account holding, Commodity commodity, List<Lot> lots) {
+        if (lots.isEmpty()) {
+            throw new IllegalStateException("cannot elect average cost for " + commodity + " in "
+                    + holding + ": nothing is held there.");
+        }
+        Money totalBasis = lots.get(0).remainingBasis();
+        Quantity totalQuantity = lots.get(0).remainingQuantity();
+        for (int index = 1; index < lots.size(); index++) {
+            totalBasis = totalBasis.plus(lots.get(index).remainingBasis());
+            totalQuantity = totalQuantity.plus(lots.get(index).remainingQuantity());
+        }
+        if (!totalQuantity.isPositive()) {
+            throw new IllegalStateException("cannot elect average cost for " + commodity
+                    + ": the position is empty");
+        }
+        Price pooled = unitCostFor(totalBasis, totalQuantity);
+
+        List<Posting> postings = new ArrayList<>();
+        for (Lot lot : lots) {
+            postings.add(Posting.security(holding, commodity, lot.remainingQuantity().negate(), lot.cost()));
+            postings.add(Posting.security(holding, commodity, lot.remainingQuantity(),
+                    new Cost(derivedLotId(event, lot.id(), "averaged"), pooled, lot.acquisitionDate())));
+        }
+        return List.copyOf(postings);
+    }
+
     /** New quantity, computed in one division so the ratio is not rounded twice. */
     private static Quantity scale(Quantity quantity, long numerator, long denominator) {
         return Quantity.of(quantity.value()
