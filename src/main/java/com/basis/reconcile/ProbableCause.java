@@ -42,6 +42,28 @@ public record ProbableCause(String code, String explanation, String suggestedAct
     public static final String STALE_HOLDING = "STALE_HOLDING";
     public static final String BASIS_DRIFT = "BASIS_DRIFT";
 
+    /**
+     * The cost was reported in one currency and the position was bought in another, and the
+     * two still disagree after translating at a known rate.
+     *
+     * <p>Its own code because most of what is left after translation is not an error: brokers
+     * translate at their own rate on their own date, and two defensible rates give two
+     * defensible numbers. Grouping this with {@link #BASIS_DRIFT} would bury the real basis
+     * differences under foreign exchange noise.
+     */
+    public static final String FX_TRANSLATION = "FX_TRANSLATION";
+
+    /**
+     * The broker reported a cost in a currency the position was not bought in, and no rate is
+     * available to translate it.
+     *
+     * <p>An explicit refusal rather than a comparison against zero. Before this existed, the
+     * ledger's basis lookup quietly ignored lots held in other currencies, so a sterling
+     * holding reported in dollars produced a break claiming the whole cost was missing. Saying
+     * "no rate, no comparison" is less satisfying and is the only honest answer available.
+     */
+    public static final String CURRENCY_NOT_COMPARABLE = "CURRENCY_NOT_COMPARABLE";
+
     public ProbableCause {
         Objects.requireNonNull(code, "code");
         Objects.requireNonNull(explanation, "explanation");

@@ -10,6 +10,7 @@ import com.basis.reference.SymbolMapping;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.Currency;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -37,14 +38,20 @@ public final class Reconciler {
 
     private final SplitCalendar splits;
     private final SymbolMapping renames;
+    private final ExchangeRates rates;
 
     public Reconciler(SplitCalendar splits) {
-        this(splits, SymbolMapping.empty());
+        this(splits, SymbolMapping.empty(), ExchangeRates.NONE);
     }
 
     public Reconciler(SplitCalendar splits, SymbolMapping renames) {
+        this(splits, renames, ExchangeRates.NONE);
+    }
+
+    public Reconciler(SplitCalendar splits, SymbolMapping renames, ExchangeRates rates) {
         this.splits = splits;
         this.renames = renames;
+        this.rates = rates;
     }
 
     /** Reconciliation with no reference data: ratios are reported as suspicions only. */
@@ -270,6 +277,18 @@ public final class Reconciler {
                 "Look for interest, a distribution or a deposit that the imported history does not contain.");
     }
 
+    /**
+     * The cost the broker reports against the cost the ledger computed.
+     *
+     * <p>Three outcomes rather than one, because a currency the ledger does not hold the
+     * position in is a different situation from a genuine difference in cost.
+     *
+     * <p>This method used to ask {@code openBasis} for the broker's currency and compare
+     * whatever came back. That silently skips lots held in any other currency and returns
+     * zero, so a holding bought in sterling and reported in dollars produced a break saying
+     * the entire cost was missing, with a confident sentence explaining a difference that was
+     * really just two currencies. A wrong answer stated plainly is worse than no answer.
+     */
     private Optional<BreakRecord> basisMismatch(
             LedgerState state, LocalDate asOf, PositionKey key, BrokerPosition reported) {
 
@@ -277,42 +296,106 @@ public final class Reconciler {
             return Optional.empty();
         }
         Money brokerBasis = reported.reportedBasis();
-        Money computedBasis = state.openBasis(key.account(), key.commodity(), brokerBasis.currency());
-        if (brokerBasis.equals(computedBasis)) {
+        Currency brokerCurrency = brokerBasis.currency();
+        Map<Currency, Money> held = state.openBasisByCurrency(key.account(), key.commodity());
+
+        // The ordinary case: the position was bought in the currency the broker reports in.
+        if (held.containsKey(brokerCurrency) && held.size() == 1) {
+            Money computedBasis = held.get(brokerCurrency);
+            if (brokerBasis.equals(computedBasis)) {
+                return Optional.empty();
+            }
+            return Optional.of(basisBreak(asOf, key, reported, brokerBasis, computedBasis,
+                    ProbableCause.suspected(ProbableCause.BASIS_DRIFT,
+                            "The share count agrees but the cost does not: the broker says " + brokerBasis
+                                    + " and basis computed " + computedBasis + ", a difference of "
+                                    + brokerBasis.minus(computedBasis) + ".",
+                            "Check whether commissions were capitalised into basis, or whether a corporate"
+                                    + " action reallocated basis differently.")));
+        }
+        if (held.isEmpty()) {
             return Optional.empty();
         }
+        return foreignBasis(asOf, key, reported, brokerBasis, held);
+    }
 
-        Money difference = brokerBasis.minus(computedBasis);
-        return Optional.of(new BreakRecord(asOf, key.account(), key.commodity(), BreakType.BASIS_MISMATCH,
+    /**
+     * A cost reported in a currency the position was not bought in.
+     *
+     * <p>Answers with a rate when one is available, and refuses when it is not. The rate is
+     * named in the sentence along with the date it came from, because a converted number
+     * nobody can reproduce is not evidence of anything.
+     */
+    private Optional<BreakRecord> foreignBasis(LocalDate asOf, PositionKey key,
+            BrokerPosition reported, Money brokerBasis, Map<Currency, Money> held) {
+
+        Currency brokerCurrency = brokerBasis.currency();
+        Money converted = Money.zero(brokerCurrency);
+        List<String> used = new ArrayList<>();
+        for (Map.Entry<Currency, Money> entry : held.entrySet()) {
+            if (entry.getKey().equals(brokerCurrency)) {
+                converted = converted.plus(entry.getValue());
+                continue;
+            }
+            Optional<ExchangeRates.Quote> quote = rates.rate(entry.getKey(), brokerCurrency, asOf);
+            if (quote.isEmpty()) {
+                return Optional.of(basisBreak(asOf, key, reported, brokerBasis, null,
+                        ProbableCause.suspected(ProbableCause.CURRENCY_NOT_COMPARABLE,
+                                "The broker reports a cost of " + brokerBasis + " but this position was"
+                                        + " bought in " + describe(held) + ", and no "
+                                        + entry.getKey().getCurrencyCode() + " to "
+                                        + brokerCurrency.getCurrencyCode() + " rate is available for "
+                                        + asOf + ". basis will not compare two currencies without one.",
+                                "Fetch exchange rates with 'basis refresh-fx "
+                                        + entry.getKey().getCurrencyCode()
+                                        + brokerCurrency.getCurrencyCode() + "' and reconcile again.")));
+            }
+            ExchangeRates.Quote rate = quote.get();
+            converted = converted.plus(Money.round(
+                    entry.getValue().toMajorUnits().multiply(rate.rate()), brokerCurrency));
+            used.add(entry.getKey().getCurrencyCode() + " at " + rate.rate().toPlainString()
+                    + (rate.isStaleFor(asOf) ? " from " + rate.asOf() : ""));
+        }
+
+        if (brokerBasis.equals(converted)) {
+            // Agrees once translated. Not a break, and saying nothing is the right answer:
+            // the ledger and the broker are describing the same cost in different money.
+            return Optional.empty();
+        }
+        return Optional.of(basisBreak(asOf, key, reported, brokerBasis, converted,
+                ProbableCause.suspected(ProbableCause.FX_TRANSLATION,
+                        "The broker reports " + brokerBasis + " and the position was bought in "
+                                + describe(held) + ". Translated at " + String.join(", ", used)
+                                + " that is " + converted + ", still a difference of "
+                                + brokerBasis.minus(converted) + ".",
+                        "Part of this is probably which rate and date your broker translated at."
+                                + " basis keeps every lot in the currency it was bought in and"
+                                + " converts only to compare, so the ledger itself is unaffected.")));
+    }
+
+    private static String describe(Map<Currency, Money> held) {
+        List<String> parts = new ArrayList<>();
+        held.forEach((currency, amount) -> parts.add(amount.toString()));
+        return String.join(" plus ", parts);
+    }
+
+    private static BreakRecord basisBreak(LocalDate asOf, PositionKey key, BrokerPosition reported,
+            Money brokerBasis, Money computedBasis, ProbableCause cause) {
+        return new BreakRecord(asOf, key.account(), key.commodity(), BreakType.BASIS_MISMATCH,
                 reported.quantity(), reported.quantity(), brokerBasis, computedBasis,
-                ProbableCause.suspected(ProbableCause.BASIS_DRIFT,
-                        "The share count agrees but the cost does not: the broker says " + brokerBasis
-                                + " and basis computed " + computedBasis + ", a difference of " + difference + ".",
-                        "Check whether commissions were capitalised into basis, or whether a corporate action"
-                                + " reallocated basis differently."),
-                BreakStatus.OPEN));
+                cause, BreakStatus.OPEN);
     }
 
     /**
      * Whether an unexplained holding happens to be a clean fraction per share of something
      * held, which is the shape a spin off has.
      *
-     * <p>Returns a sentence to add, never a classification. That distinction is the whole
-     * lesson here, and it was learned the hard way twice. The first version of this returned
-     * its own cause code and displaced {@code UNKNOWN_HOLDING}, and it immediately explained
-     * a coincidence as a corporate action: in the demo, 15 shares of one holding are exactly
-     * 0.75 per share of another it has nothing to do with.
-     *
-     * <p>A quantity ratio genuinely cannot tell a spin off from a purchase nobody exported.
-     * Ratios like a half, a quarter or three quarters turn up constantly between unrelated
-     * positions, and there is no corporate action feed here to corroborate one, so the
-     * arithmetic is arithmetic. The same conclusion the split ratio detector reached: without
-     * evidence, say what you noticed and let the person decide.
-     *
-     * <p>So the break stays an unknown holding and gains a sentence naming the candidate
-     * parent and the ratio. The web layer turns that into a choice where somebody can supply
-     * the basis fraction from the company's Form 8937, which is the only place that number
-     * exists.
+     * <p>Returns a sentence to add, never a classification. The first version of this had its
+     * own cause code and displaced {@code UNKNOWN_HOLDING}, and it immediately explained a
+     * coincidence as a corporate action: in the demo, 15 shares of one holding are exactly
+     * 0.75 per share of another it has nothing to do with. A quantity ratio cannot tell a spin
+     * off from a purchase nobody exported, and there is no corporate action feed here to
+     * corroborate one, so the arithmetic stays arithmetic.
      */
     private static Optional<String> spinOffHint(
             LedgerState state, PositionKey key, Quantity broker) {
