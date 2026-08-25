@@ -38,6 +38,13 @@ public class ReferenceDataRepository implements SplitCalendar {
     /** The {@code event_type} splits are cached under. */
     public static final String SPLIT = "SPLIT";
 
+    /**
+     * Daily exchange rates, in the same table as split history and for the same reason: it is
+     * a public fact about the world, cached so it is fetched once and auditable afterwards.
+     * The event_date is the date the rate is for, and the symbol is the pair.
+     */
+    public static final String FX = "FX";
+
     private final JdbcClient db;
 
     public ReferenceDataRepository(JdbcClient db) {
@@ -301,5 +308,63 @@ public class ReferenceDataRepository implements SplitCalendar {
         return fetchState(symbol)
                 .map(state -> state.lastSuccessAt() == null ? CoverageStatus.CHECK_FAILED : CoverageStatus.CHECKED)
                 .orElse(CoverageStatus.NEVER_CHECKED);
+    }
+
+    /**
+     * Stores the provider's daily quotes for one pair.
+     *
+     * <p>Only the close is kept. A cost basis comparison needs one rate for a day, and keeping
+     * four would mean later deciding which of them the comparison meant, which is a decision
+     * better made once and written down: the close is the day's settled answer and the one a
+     * broker is most likely to have used.
+     */
+    @Transactional
+    public int ingestRates(String pair, String body, String source) {
+        int rows = db.sql("""
+                INSERT INTO reference_data (symbol, event_type, event_date, payload, source, fetched_at)
+                SELECT DISTINCT ON ((element->>'date')::date)
+                       :pair, :type, (element->>'date')::date, element, :source, now()
+                  FROM jsonb_array_elements(CAST(:body AS jsonb)) AS element
+                 WHERE element->>'date' IS NOT NULL
+                   AND element->>'close' IS NOT NULL
+                 ORDER BY (element->>'date')::date
+                ON CONFLICT (symbol, event_type, event_date) DO UPDATE
+                   SET payload = EXCLUDED.payload,
+                       source = EXCLUDED.source,
+                       fetched_at = now()
+                """)
+                .param("pair", pair)
+                .param("type", FX)
+                .param("source", source)
+                .param("body", body)
+                .update();
+        recordSuccess(pair, rows);
+        return rows;
+    }
+
+    /**
+     * The most recent quote at or before a date, which is what a weekend needs.
+     *
+     * <p>Returns the date the rate is really from rather than the date asked for, so a caller
+     * can say so. A rate quietly relabelled with the wrong date is the kind of small lie that
+     * makes a reconciliation impossible to check by hand.
+     */
+    public java.util.Optional<com.basis.reconcile.ExchangeRates.Quote> rateAt(
+            String pair, java.time.LocalDate on) {
+        return db.sql("""
+                SELECT event_date, payload->>'close' AS close, source
+                  FROM reference_data
+                 WHERE symbol = :pair AND event_type = :type AND event_date <= :on
+                 ORDER BY event_date DESC
+                 LIMIT 1
+                """)
+                .param("pair", pair)
+                .param("type", FX)
+                .param("on", on)
+                .query((rs, rowNum) -> new com.basis.reconcile.ExchangeRates.Quote(
+                        new java.math.BigDecimal(rs.getString("close")),
+                        rs.getObject("event_date", java.time.LocalDate.class),
+                        rs.getString("source")))
+                .optional();
     }
 }
