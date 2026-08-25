@@ -103,6 +103,23 @@ class BasisCliTest {
     }
 
     @Test
+    @DisplayName("an option value can be written with a space, the way people type it")
+    void optionValuesMayBeSpaceSeparated() {
+        assertThat(BasisCli.normaliseOptions(new String[] {"open", "ACC", "AAPL", "1",
+                "--cost", "90.00", "--on", "2015-03-12"}))
+                .as("Spring only understands --name=value, and the README documented the space form")
+                .containsExactly("open", "ACC", "AAPL", "1", "--cost=90.00", "--on=2015-03-12");
+    }
+
+    @Test
+    @DisplayName("a flag does not swallow the argument after it")
+    void flagsDoNotSwallowPositionals() {
+        assertThat(BasisCli.normaliseOptions(new String[] {"reconcile", "ACC", "--dry-run", "file.csv"}))
+                .as("joining any option to what follows would lose the filename")
+                .containsExactly("reconcile", "ACC", "--dry-run", "file.csv");
+    }
+
+    @Test
     @DisplayName("no arguments prints usage and exits 2")
     void noArgumentsIsAUsageError() {
         assertThat(run()).isEqualTo(BasisCli.USAGE);
