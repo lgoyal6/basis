@@ -97,7 +97,8 @@
       basis, and compares its answer against the position the broker reports. Every
       disagreement becomes a <strong>break</strong> with a probable cause attached.</p>
     <div class="btns">
-      <a class="btn p" href="https://github.com/lgoyal6/basis">Source on GitHub</a>
+      <a class="btn p" href="https://basis-web-production.up.railway.app">Check your own statement</a>
+      <a class="btn" href="https://github.com/lgoyal6/basis">Source on GitHub</a>
       <a class="btn" href="https://github.com/lgoyal6/basis/blob/main/docs/ARCHITECTURE.md">Design decisions</a>
       <a class="btn" href="#try">Run it yourself</a>
     </div>
@@ -108,9 +109,12 @@
   <div class="wrap">
     <h2>A recorded session</h2>
     <p class="sub">This is a real run of <code>./scripts/demo.sh</code>, captured verbatim from
-      the binary. Nothing here is simulated in your browser: the ledger arithmetic happens in
-      Java against Postgres, and a second implementation in JavaScript could disagree with it,
-      which is exactly what this project refuses to allow.</p>
+      the binary. Nothing on this page is simulated in your browser: the ledger arithmetic
+      happens in Java against Postgres, and a second implementation in JavaScript could
+      disagree with it, which is exactly what this project refuses to allow. To run it on your
+      own statement there is
+      <a href="https://basis-web-production.up.railway.app">a hosted version</a> that needs no
+      account and stores nothing.</p>
 
     <div class="term">
       <div class="bar">
@@ -183,9 +187,14 @@
         wording it did not recognise. An ambiguous corporate action raises a break and asks.</li>
       <li><b>It never touches broker credentials.</b> Statement upload only, no OAuth, no
         screen scraping, no stored passwords.</li>
-      <li><b>It has no web layer.</b> This page is a recording, not a running instance. A server
-        would mean uploading brokerage history somewhere and a second place where money
-        arithmetic can happen.</li>
+      <li><b>It computes nothing in your browser.</b> This page is a recording. The hosted
+        version is a real server, but it renders what the same Java ledger returned rather than
+        reimplementing any of it, so there is never a second answer to disagree with the
+        first.</li>
+      <li><b>It stores nothing it does not have to.</b> An uploaded statement is held in memory
+        for two hours and deleted on request. It is never written to a database, because a
+        promise to delete is only as good as the backups and a promise that nothing was written
+        down can be checked by reading one file.</li>
       <li><b>It uses no floating point.</b> Anywhere. An ArchUnit test fails the build if a
         <code>double</code> appears, because binary floating point cannot represent 0.10 and a
         basis that drifts a cent per trade is wrong in a way nobody notices for years.</li>
