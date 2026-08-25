@@ -7,6 +7,7 @@ import com.basis.ledger.Ledger;
 import com.basis.persistence.DerivedStateProjector;
 import com.basis.persistence.ImportBatchRepository;
 import com.basis.persistence.LedgerRepository;
+import com.basis.reference.CommodityCatalog;
 import com.basis.reference.SymbolMapping;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -70,12 +71,12 @@ public class ImportService {
      */
     public ImportReport importStatement(
             Path file, BrokerProfile profile, Account brokerAccount, Account externalAccount,
-            SymbolMapping renames) {
+            SymbolMapping renames, CommodityCatalog catalog) {
 
         List<StatementRow> rows = new StatementParser(profile).read(file);
         String source = file.getFileName().toString();
-        StatementRowMapper mapper =
-                new StatementRowMapper(profile, brokerAccount, externalAccount, renames, source);
+        StatementRowMapper mapper = new StatementRowMapper(
+                profile, brokerAccount, externalAccount, renames, catalog, source);
 
         // Every row is understood before anything is written. A statement with one
         // unreadable line is rejected whole, rather than half imported.
@@ -166,6 +167,16 @@ public class ImportService {
                 }
             }
             batches.commit(batchId, rowsRead);
+        } catch (com.basis.ledger.lot.InsufficientLotsException e) {
+            // Near certain on a first import, because a download window is 90 days and the
+            // purchase behind a sale in it is usually older than that. Worth saying what to
+            // do rather than leaving someone with a bare arithmetic complaint.
+            log.error("import of {} failed; batch {} is left in flight for recovery", file, batchId);
+            throw new StatementFormatException(e.getMessage()
+                    + " This usually means the purchase happened before the window this"
+                    + " statement covers. State what the account already held with"
+                    + " 'basis open <account> <symbol> <quantity> --cost <price> --on <date>',"
+                    + " then import again.");
         } catch (RuntimeException e) {
             // The batch is left in flight on purpose. Startup recovery, or basis recover,
             // rolls it back and says so, which leaves a trail that an import was attempted.

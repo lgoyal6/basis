@@ -15,6 +15,7 @@ import com.basis.persistence.DerivedStateRepository;
 import com.basis.persistence.ImportBatchRepository;
 import com.basis.persistence.LedgerRepository;
 import com.basis.persistence.StartupRecovery;
+import com.basis.reference.CommodityCatalog;
 import com.basis.reference.SymbolMapping;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -234,7 +235,8 @@ class ImportServiceTest {
     /** Every import in this test uses the shipped Fidelity profile. */
     private ImportReport importFidelity(
             Path file, Account broker, Account external, SymbolMapping renames) {
-        return importer.importStatement(file, BrokerProfiles.load("fidelity"), broker, external, renames);
+        return importer.importStatement(file, BrokerProfiles.load("fidelity"), broker, external, renames,
+                CommodityCatalog.empty());
     }
 
     private static Path write(Path dir, String content) throws Exception {
