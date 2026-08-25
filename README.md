@@ -35,6 +35,34 @@ Week 4. Ledger core, distributions, transfers, corporate actions, reconciliation
 Every event the ledger declares is now handled. Still to come: importers for other
 brokers, and cash in lieu of fractional shares. No web layer.
 
+### How reconciliation works
+
+```mermaid
+flowchart LR
+  STMT[("broker statement<br/>the same trades the broker saw")] --> IMP["import<br/>per-broker parser"]
+  IMP --> LEDGER["multi-commodity<br/>double-entry postings"]
+  LEDGER --> LOTS["lot-level cost basis<br/>FIFO / LIFO / HIFO / specific-lot"]
+  CA["corporate actions<br/>splits, reverse splits,<br/>stock dividends, spin-offs"] --> LOTS
+  LOTS --> COMPUTED["computed position"]
+  SNAP[("broker position snapshot")] --> CMP{"agree?"}
+  COMPUTED --> CMP
+  CMP -->|"yes"| OK["reconciled"]
+  CMP -->|"no"| BREAK["break, with a probable cause"]
+  REF[("reference_data<br/>split history, optional,<br/>off by default")] -.-> BREAK
+  BREAK --> B1["ratio matches a known split<br/>confident, names the action"]
+  BREAK --> B2["ratio found, no reference data<br/>arithmetic not evidence, not confident"]
+  BREAK --> B3["reference data says no such split<br/>points at missing trades instead"]
+
+  style CMP fill:#1f6feb,color:#fff
+```
+
+Three answers, not two. A ratio that provably is not a corporate action is a
+different finding from one that might be, and it gets its own code rather than
+being folded into a guess.
+
+Eight invariants are asserted over generated histories after every step, which is
+what stops the ledger from drifting as new event types land.
+
 ### What a break looks like
 
 Given a history that never applied Apple's 2020 split, and a statement saying 40
