@@ -23,3 +23,15 @@ healthcheckTimeout = 120
 # database that is still starting and few enough to notice.
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 10
+
+# Sleep when nothing is asking anything, wake on the next request.
+#
+# A ledger nobody is currently reconciling does not need to be running, and the alternative is
+# paying continuously for a JVM's resident memory so that a link stays warm. The cost is a cold
+# start on the first request after idle, which for a Spring Boot app on a JDK is seconds rather
+# than milliseconds.
+#
+# Worth being clear about what this does not fix: the Postgres service does not sleep, so there
+# is a floor to what this deployment costs. That floor is small because the app, not the
+# database, is the expensive half.
+sleepApplication = true
