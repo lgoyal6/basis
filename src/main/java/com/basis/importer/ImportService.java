@@ -44,6 +44,9 @@ public class ImportService {
 
     private static final Logger log = LoggerFactory.getLogger(ImportService.class);
 
+    /** The batch source for events a person entered rather than a broker reported. */
+    static final String ASSERTED = "asserted";
+
     private final ImportBatchRepository batches;
     private final LedgerRepository ledgerRepository;
     private final DerivedStateProjector projector;
@@ -77,11 +80,45 @@ public class ImportService {
         // Every row is understood before anything is written. A statement with one
         // unreadable line is rejected whole, rather than half imported.
         List<LedgerEvent> events = new ArrayList<>();
+        int ignored = 0;
         for (StatementRow row : rows) {
-            events.addAll(mapper.toEvents(row));
+            List<LedgerEvent> fromRow = mapper.toEvents(row);
+            if (fromRow.isEmpty()) {
+                ignored++;
+            }
+            events.addAll(fromRow);
         }
 
-        return record(events, rows.size(), file, profile);
+        ImportReport report = record(events, rows.size(), file, profile);
+        if (ignored == 0) {
+            return report;
+        }
+        // Counted and reported. A row skipped on purpose is still a row somebody should be
+        // able to notice was skipped.
+        List<String> notes = new ArrayList<>(report.notes());
+        notes.add(ignored + " row(s) were ignored by the " + profile.name()
+                + " profile's action.IGNORE list.");
+        return new ImportReport(report.batchId(), report.source(), report.rowsRead(),
+                report.eventsRecorded(), report.alreadyPresent(), notes);
+    }
+
+    /**
+     * Records an event the user asserts rather than one a broker reported.
+     *
+     * <p>Corporate actions, opening balances and corrections do not arrive on a statement,
+     * or arrive in a form no parser should be trusted to read. They still go through the
+     * same batch, the same idempotency key and the same rebuild, because an event nobody can
+     * audit is worse than one nobody can enter.
+     *
+     * <p>The command that produced it is the source row. For a statement the verbatim line
+     * is what makes a parser bug fixable by replay; for an assertion, what someone typed is
+     * the equivalent record of where the entry came from.
+     *
+     * <p>Re-running the same command is a no op, because the reference is derived from the
+     * command's own content rather than generated.
+     */
+    public ImportReport recordAsserted(LedgerEvent event, Path pseudoFile) {
+        return record(List.of(event), 1, pseudoFile, ASSERTED);
     }
 
     /**
@@ -91,8 +128,22 @@ public class ImportService {
      * in this file can consume lots opened by a file imported last month.
      */
     private ImportReport record(List<LedgerEvent> events, int rowsRead, Path file, BrokerProfile profile) {
+        return record(events, rowsRead, file, profile.name(), digestOf(file));
+    }
+
+    private ImportReport record(List<LedgerEvent> events, int rowsRead, Path file, String source) {
+        // An asserted event has no file to hash, so its content is the identity instead.
+        byte[] identity = events.stream()
+                .map(event -> event.idempotencyKey().bytes())
+                .findFirst()
+                .orElse(new byte[] {0});
+        return record(events, rowsRead, file, source, identity);
+    }
+
+    private ImportReport record(
+            List<LedgerEvent> events, int rowsRead, Path file, String source, byte[] contentHash) {
         Ledger ledger = hydratedLedger();
-        long batchId = batches.open(profile.name(), file.getFileName().toString(), digestOf(file));
+        long batchId = batches.open(source, file.getFileName().toString(), contentHash);
         List<String> notes = new ArrayList<>();
         int recorded = 0;
         int alreadyPresent = 0;
