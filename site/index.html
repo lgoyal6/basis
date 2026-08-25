@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>basis, a ledger that argues with your broker</title>
+<meta name="description" content="Recomputes brokerage positions from transaction history and reports every disagreement with the broker as a break with a probable cause attached.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9878;</text></svg>">
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#11151d; --line:#1e2530; --ink:#e3e8ef; --dim:#8b96a8;
+    --green:#5ddb7f; --amber:#e3b341; --blue:#6cb6ff; --red:#f47067; --white:#f7fafc;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+       line-height:1.65;font-size:16px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:880px;margin:0 auto;padding:0 20px}
+  a{color:var(--blue)}
+  h1,h2,h3{line-height:1.2;letter-spacing:-.02em}
+  code{font-family:var(--mono);font-size:.9em}
+
+  header{padding:72px 0 40px;border-bottom:1px solid var(--line)}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin:0 0 14px}
+  h1{font-size:clamp(34px,6vw,56px);margin:0 0 6px;font-weight:680}
+  h1 .dot{color:var(--green)}
+  .tag{font-size:clamp(18px,2.6vw,23px);color:var(--white);margin:0 0 20px;font-weight:500}
+  .lede{color:var(--dim);max-width:64ch;margin:0 0 26px}
+  .btns{display:flex;flex-wrap:wrap;gap:10px}
+  .btn{display:inline-block;padding:9px 16px;border-radius:7px;text-decoration:none;
+       font-size:14.5px;font-weight:560;border:1px solid var(--line);color:var(--ink);background:var(--panel)}
+  .btn.p{background:var(--green);border-color:var(--green);color:#06240f}
+  .btn:hover{border-color:#313d4d}
+
+  section{padding:52px 0;border-bottom:1px solid var(--line)}
+  section h2{font-size:clamp(22px,3.4vw,30px);margin:0 0 6px}
+  .sub{color:var(--dim);margin:0 0 26px;max-width:66ch}
+
+  /* terminal */
+  .term{background:#05070b;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .bar{display:flex;align-items:center;gap:7px;padding:10px 13px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .bar i{width:11px;height:11px;border-radius:50%;display:block}
+  .bar .t{margin-left:8px;font-family:var(--mono);font-size:11.5px;color:var(--dim)}
+  .screen{padding:16px 18px;font-family:var(--mono);font-size:13px;line-height:1.62;
+          min-height:340px;max-height:60vh;overflow:auto;white-space:pre-wrap;word-break:break-word}
+  .screen .cmd{color:var(--green);font-weight:600}
+  .screen .out{color:#c3ccd9}
+  .screen .head{color:var(--white);font-weight:600}
+  .screen .ok{color:var(--green)}
+  .screen .warn{color:var(--amber)}
+  .screen .cmdhint{color:var(--blue);font-weight:600}
+  .screen .step{color:var(--dim);margin-top:14px;display:block}
+  .screen .note{color:var(--amber);opacity:.92;display:block;margin-top:6px}
+  .screen .cur{animation:blink 1.05s step-end infinite}
+  @keyframes blink{50%{opacity:0}}
+
+  .ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:11px 13px;
+       background:var(--panel);border-top:1px solid var(--line)}
+  .ctl button{font:inherit;font-size:13px;font-weight:560;padding:6px 13px;border-radius:6px;
+              border:1px solid var(--line);background:#161b25;color:var(--ink);cursor:pointer}
+  .ctl button:hover:not(:disabled){border-color:#3a465a}
+  .ctl button:disabled{opacity:.4;cursor:default}
+  .ctl .prog{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--dim)}
+
+  .cards{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(238px,1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:17px}
+  .card h3{font-size:15px;margin:0 0 7px;font-family:var(--mono);letter-spacing:-.01em}
+  .card p{margin:0;font-size:14.2px;color:var(--dim)}
+  .card.g h3{color:var(--green)} .card.a h3{color:var(--amber)} .card.r h3{color:var(--red)}
+
+  pre.sh{background:#05070b;border:1px solid var(--line);border-radius:9px;padding:15px 17px;
+      overflow-x:auto;font-family:var(--mono);font-size:13px;color:#c3ccd9;margin:0}
+  pre.sh b{color:var(--green);font-weight:600}
+  pre.sh i{color:var(--dim);font-style:normal}
+
+  ul.plain{list-style:none;padding:0;margin:0;display:grid;gap:11px}
+  ul.plain li{padding-left:26px;position:relative;color:var(--dim);font-size:15px}
+  ul.plain li::before{content:"\2717";position:absolute;left:2px;top:-1px;color:var(--red);font-weight:700}
+  ul.plain li b{color:var(--ink);font-weight:600}
+
+  footer{padding:36px 0 64px;color:var(--dim);font-size:14px}
+  footer a{color:var(--dim)}
+  @media(max-width:560px){.screen{font-size:11.6px}header{padding:48px 0 32px}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <p class="eyebrow">Java 21 &nbsp;/&nbsp; PostgreSQL 16 &nbsp;/&nbsp; no web layer</p>
+    <h1>basis<span class="dot">.</span></h1>
+    <p class="tag">A ledger that argues with your broker.</p>
+    <p class="lede">Given the same trades your broker saw, basis replays them through a
+      multi-commodity double-entry ledger, applies corporate actions, computes lot-level cost
+      basis, and compares its answer against the position the broker reports. Every
+      disagreement becomes a <strong>break</strong> with a probable cause attached.</p>
+    <div class="btns">
+      <a class="btn p" href="https://github.com/lgoyal6/basis">Source on GitHub</a>
+      <a class="btn" href="https://github.com/lgoyal6/basis/blob/main/docs/ARCHITECTURE.md">Design decisions</a>
+      <a class="btn" href="#try">Run it yourself</a>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>A recorded session</h2>
+    <p class="sub">This is a real run of <code>./scripts/demo.sh</code>, captured verbatim from
+      the binary. Nothing here is simulated in your browser: the ledger arithmetic happens in
+      Java against Postgres, and a second implementation in JavaScript could disagree with it,
+      which is exactly what this project refuses to allow.</p>
+
+    <div class="term">
+      <div class="bar">
+        <i style="background:#f47067"></i><i style="background:#e3b341"></i><i style="background:#5ddb7f"></i>
+        <span class="t">basis / scripts/demo.sh</span>
+      </div>
+      <div class="screen" id="screen" role="log" aria-live="polite"></div>
+      <div class="ctl">
+        <button id="play">Play</button>
+        <button id="next">Step</button>
+        <button id="reset">Reset</button>
+        <span class="prog" id="prog"></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Three answers, not two</h2>
+    <p class="sub">Most tools tell you the numbers disagree. The useful part is why, and how
+      much the tool actually knows. basis keeps those apart on purpose.</p>
+    <div class="cards">
+      <div class="card g">
+        <h3>UNAPPLIED_SPLIT (confirmed)</h3>
+        <p>The ratio matches, and split history confirms a split on that date. Confident enough
+          to name the action and hand you the command.</p>
+      </div>
+      <div class="card a">
+        <h3>UNAPPLIED_SPLIT (suspected)</h3>
+        <p>The ratio matches, but nothing was ever fetched to check it against. That is
+          arithmetic, not evidence, and it says so rather than guessing.</p>
+      </div>
+      <div class="card r">
+        <h3>RATIO_WITHOUT_KNOWN_SPLIT</h3>
+        <p>History <em>was</em> checked and contains no such split. The ratio is a coincidence,
+          so this points at missing trades instead.</p>
+      </div>
+    </div>
+    <p class="sub" style="margin-top:22px;margin-bottom:0">&ldquo;Checked and found nothing&rdquo;,
+      &ldquo;never checked&rdquo; and &ldquo;could not check&rdquo; are three different states.
+      Collapsing them into one is how a tool ends up confidently wrong.</p>
+  </div>
+</section>
+
+<section id="try">
+  <div class="wrap">
+    <h2>Run it yourself</h2>
+    <p class="sub">The session above, on your machine, in one command. No API key, no data of
+      your own, and it tears the database down when it finishes. Needs JDK 21 and Docker.</p>
+<pre class="sh"><b>git clone https://github.com/lgoyal6/basis &amp;&amp; cd basis</b>
+<b>./scripts/demo.sh</b></pre>
+    <p class="sub" style="margin-top:22px">To point it at your own history instead:</p>
+<pre class="sh"><b>docker compose up -d</b>          <i># Postgres 16, the only dependency</i>
+<b>./gradlew bootJar</b>
+
+<i># what you held before your oldest statement</i>
+<b>basis open</b> Assets:Broker:Fidelity AAPL 100 --cost 90.00 --on 2015-03-12
+<b>basis import</b> fidelity Assets:Broker:Fidelity history.csv
+<b>basis reconcile</b> Assets:Broker:Fidelity positions.csv --as-of 2026-03-31</pre>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>What it refuses to do</h2>
+    <ul class="plain">
+      <li><b>It is not a tax product.</b> It does not generate tax forms.</li>
+      <li><b>It does not guess.</b> An unreadable statement row stops the import and prints the
+        wording it did not recognise. An ambiguous corporate action raises a break and asks.</li>
+      <li><b>It never touches broker credentials.</b> Statement upload only, no OAuth, no
+        screen scraping, no stored passwords.</li>
+      <li><b>It has no web layer.</b> This page is a recording, not a running instance. A server
+        would mean uploading brokerage history somewhere and a second place where money
+        arithmetic can happen.</li>
+      <li><b>It uses no floating point.</b> Anywhere. An ArchUnit test fails the build if a
+        <code>double</code> appears, because binary floating point cannot represent 0.10 and a
+        basis that drifts a cent per trade is wrong in a way nobody notices for years.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    MIT licensed. <a href="https://github.com/lgoyal6/basis">github.com/lgoyal6/basis</a> &nbsp;&middot;&nbsp;
+    Every design decision, including the ones that turned out wrong, is written down in
+    <a href="https://github.com/lgoyal6/basis/blob/main/docs/ARCHITECTURE.md">ARCHITECTURE.md</a>.
+  </div>
+</footer>
+
+<script>
+/* A real run of scripts/demo.sh, captured verbatim from the binary. */
+window.SESSION=[{"title":"Import the statement","lines":[{"k":"cmd","t":"$ basis import fidelity Assets:Broker:Demo build/demo/history.csv"},{"k":"out","t":"2 row(s) read, 2 transaction(s) recorded, 0 already present"},{"k":"gap","t":""}],"note":""},{"title":"Ask the broker's snapshot whether the ledger is right","lines":[{"k":"out","t":"   (the broker says 40 shares. basis computed 10.)"},{"k":"cmd","t":"$ basis reconcile Assets:Broker:Demo build/demo/positions.csv --as-of 2026-03-31"},{"k":"gap","t":""},{"k":"head","t":"[1]  2026-03-31  Assets:Broker:Demo:DEMO  DEMO  QUANTITY_MISMATCH"},{"k":"out","t":"  broker 40, computed 10"},{"k":"warn","t":"  UNAPPLIED_SPLIT (suspected)"},{"k":"ok","t":"  The broker reports 4 for 1 of what basis computed, which is the shape of an unapplied split. The split history for DEMO cannot confirm or rule that out because it has never been fetched, so this is arithmetic and not evidence."},{"k":"warn","t":"  next: Refresh the reference data for DEMO and reconcile again."},{"k":"gap","t":""},{"k":"out","t":"1 break(s) recorded"},{"k":"gap","t":""}],"note":"Note the ratio was found, but it is only arithmetic. basis says so and stops."},{"title":"Tell basis about the split, as if from a broker notice","lines":[{"k":"out","t":"   (refresh-splits would fetch this from a provider. cache-split needs no key.)"},{"k":"cmd","t":"$ basis cache-split DEMO 4:1 --on 2020-08-31"},{"k":"ok","t":"recorded a 4 for 1 split of DEMO on 2020-08-31, sourced as manual"},{"k":"gap","t":""}],"note":""},{"title":"Reconcile again. Same numbers, but now there is evidence","lines":[{"k":"cmd","t":"$ basis reconcile Assets:Broker:Demo build/demo/positions.csv --as-of 2026-03-31"},{"k":"gap","t":""},{"k":"head","t":"[2]  2026-03-31  Assets:Broker:Demo:DEMO  DEMO  QUANTITY_MISMATCH"},{"k":"out","t":"  broker 40, computed 10"},{"k":"ok","t":"  UNAPPLIED_SPLIT (confirmed)"},{"k":"out","t":"  The broker reports 4 for 1 of what basis computed, and DEMO had a 4 for 1 split effective 2020-08-31 that this history never applied."},{"k":"warn","t":"  next: Apply the 4 for 1 split of DEMO dated 2020-08-31 and reconcile again."},{"k":"cmdhint","t":"  run:  basis apply break 2"},{"k":"gap","t":""},{"k":"out","t":"1 break(s) recorded"},{"k":"gap","t":""}],"note":""},{"title":"Do what it said, using the id the output just gave us","lines":[{"k":"cmd","t":"$ basis apply break 2"},{"k":"ok","t":"the 4 for 1 split of DEMO dated 2020-08-31 applied"},{"k":"out","t":"break 2 settled as ACCEPTED. Reconcile again to confirm nothing is left."},{"k":"gap","t":""}],"note":""},{"title":"Confirm nothing is left","lines":[{"k":"cmd","t":"$ basis reconcile Assets:Broker:Demo build/demo/positions.csv --as-of 2026-03-31"},{"k":"ok","t":"no breaks: 1 reported position(s) agree with the ledger"},{"k":"gap","t":""}],"note":""},{"title":"Invariant 7: throw the derived state away and replay it from the postings","lines":[{"k":"cmd","t":"$ basis rebuild"},{"k":"out","t":"rebuilt: 3 positions, 2 lots, 0 realized gains"},{"k":"out","t":"hash: 9c078826ba10b2e03669a57ebdc1feebc6e09d7d25c4ff0f26505fbc22e5200d"},{"k":"gap","t":""}],"note":"Done. The ledger and the broker now agree, and every step is in the posting table."}];
+</script>
+<script>
+(function(){
+  var steps = window.SESSION || [];
+  var screenEl = document.getElementById('screen');
+  var playBtn = document.getElementById('play');
+  var nextBtn = document.getElementById('next');
+  var resetBtn = document.getElementById('reset');
+  var progEl = document.getElementById('prog');
+  var at = 0, timer = null, playing = false;
+
+  function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function renderStep(step, n){
+    var html = '<span class="step">' + esc('# ' + n + '. ' + step.title) + '</span>';
+    step.lines.forEach(function(l){
+      if (l.k === 'gap') { html += '\n'; return; }
+      var text = l.k === 'cmd' ? l.t : l.t;
+      html += '<span class="' + l.k + '">' + esc(text) + '</span>\n';
+    });
+    if (step.note) html += '<span class="note">' + esc('  ' + step.note) + '</span>';
+    return html;
+  }
+
+  function draw(){
+    var out = '';
+    for (var i = 0; i < at; i++) out += renderStep(steps[i], i + 1);
+    if (at < steps.length) out += '<span class="cur">&#9608;</span>';
+    screenEl.innerHTML = out;
+    screenEl.scrollTop = screenEl.scrollHeight;
+    progEl.textContent = at + ' / ' + steps.length;
+    nextBtn.disabled = at >= steps.length;
+    playBtn.textContent = playing ? 'Pause' : (at >= steps.length ? 'Replay' : 'Play');
+  }
+
+  function step(){
+    if (at >= steps.length) { stop(); return; }
+    at++; draw();
+    if (playing && at < steps.length) timer = setTimeout(step, 1500);
+    else if (playing) stop();
+  }
+  function stop(){ playing = false; clearTimeout(timer); draw(); }
+
+  playBtn.addEventListener('click', function(){
+    if (playing) { stop(); return; }
+    if (at >= steps.length) at = 0;
+    playing = true; draw(); step();
+  });
+  nextBtn.addEventListener('click', function(){ stop(); at++; draw(); });
+  resetBtn.addEventListener('click', function(){ stop(); at = 0; draw(); });
+
+  draw();
+  // Start on its own once, so the page shows what it is without a click.
+  if (steps.length) { playing = true; draw(); timer = setTimeout(step, 700); }
+})();
+</script>
+</body>
+</html>
