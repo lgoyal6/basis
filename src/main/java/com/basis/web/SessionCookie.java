@@ -29,6 +29,9 @@ import org.springframework.stereotype.Component;
  * anybody developing this will meet it first.
  */
 @Component
+// Web only. Scanned into a CLI context these would demand beans the web profile
+// provides, which is how adding the web layer broke every Spring test at once.
+@org.springframework.context.annotation.Profile("web")
 public class SessionCookie {
 
     public static final String NAME = "basis_session";

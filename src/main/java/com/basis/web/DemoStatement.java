@@ -22,6 +22,9 @@ import org.springframework.stereotype.Component;
  * ticker is the single most convincing thing on the page.
  */
 @Component
+// Web only. Scanned into a CLI context these would demand beans the web profile
+// provides, which is how adding the web layer broke every Spring test at once.
+@org.springframework.context.annotation.Profile("web")
 public class DemoStatement {
 
     /** Fidelity's real column layout, which is also the format most first uploads arrive in. */
