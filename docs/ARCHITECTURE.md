@@ -792,6 +792,9 @@ returned object rather than on what a person sees.
 
 ## 24. The Fidelity importer, built against a format nobody has verified
 
+> Superseded in part by section 25. The parsing behaviour described here is unchanged;
+> what was Fidelity specific is now a properties file rather than a Java class.
+
 Written from knowledge of Fidelity's Accounts History export rather than from a real one,
 which is the first thing to know about it and is why the design puts everything likely to
 be wrong in tables rather than in code.
@@ -865,3 +868,51 @@ Anything not in the action table, which currently means interest, margin, option
 assignments and corporate action rows as Fidelity words them. Each will announce itself with
 the exact text the first time a real statement contains one. That is the intended way to
 find them.
+
+## 25. Broker profiles: adding a broker is a config file
+
+Section 24 built the importer around Fidelity, with the column names in a Java map and the
+action words in a Java class. That was the right first shape and the wrong second one: the
+next broker would have meant a second parser, and a second parser is a second place for the
+event logic to drift.
+
+The split now runs along what actually varies:
+
+| Data, in `config/brokers/<name>.properties` | Code, in `StatementParser` and `StatementRowMapper` |
+| --- | --- |
+| column names and their aliases | finding the header under the preamble |
+| the words for a purchase, a dividend, a fee | respecting quotes so a description's comma does not shift columns |
+| date formats | ending the body at the first line with no date |
+| | what a purchase means to the ledger |
+
+`ActionKind` is the vocabulary in the middle. Fidelity writes `YOU BOUGHT`, Schwab writes
+`Buy`, and both map onto `ActionKind.BUY`. Keeping that vocabulary out of any one broker's
+file is what makes the mapper broker blind.
+
+No broker is named anywhere in `src/main/java`. That is checkable rather than aspirational:
+`grep -rn 'Fidelity\|Schwab' src/main/java` returns nothing.
+
+### Why properties files
+
+A person edits these, so the format has to be editable by a person and readable without a
+manual. Java properties need no parser, no dependency, and no explanation. YAML would have
+meant relying on a transitive SnakeYAML, and the project has been careful about not building
+on dependencies it did not declare.
+
+Two details fall out of that choice. Lists are separated by `|` rather than commas, because a
+column really can be called `Amount, Net` and a separator that appears inside values is not a
+separator. And **a key nothing reads is refused**, because `column.commissions` instead of
+`column.commission` would otherwise leave commissions silently unmapped, which imports
+cleanly and is wrong.
+
+### Two profiles ship, one of them as a demonstration
+
+`fidelity.properties` is the one that was asked for. `schwab.properties` exists to prove the
+claim: it was written without a line of Java, and `BrokerAgnosticImportTest` imports a
+Schwab shaped export through it and checks the arithmetic. Both are unverified against real
+exports, and both say so at the top of the file.
+
+The failure mode is designed for that uncertainty. A row whose action is not recognised stops
+the import and prints the exact text it did not understand along with the phrases it knows,
+so the first real statement tells you precisely which line to add and where. That is the
+intended way to finish a profile: not by reading a specification, but by running it.
