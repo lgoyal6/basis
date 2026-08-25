@@ -1,0 +1,28 @@
+# Postgres 16, which is the only thing basis needs that it cannot build itself.
+#
+# Version 16 specifically, not "postgres:latest". A ledger's arithmetic lives in its
+# NUMERIC columns and its CHECK constraints, and the test suite asserts against a real
+# 16 through Testcontainers. Running the binary against a different major version than
+# the one the invariants were proven on is exactly the kind of difference that shows up
+# as a rounding break nobody can explain.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: basis
+      POSTGRES_USER: basis
+      POSTGRES_PASSWORD: basis
+    ports:
+      - "5432:5432"
+    volumes:
+      - basis-db:/var/lib/postgresql/data
+    healthcheck:
+      # basis runs its own migrations at startup, so it has to find a database that is
+      # actually accepting connections rather than one that has merely been created.
+      test: ["CMD-SHELL", "pg_isready -U basis -d basis"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  basis-db:
