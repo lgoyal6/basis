@@ -20,4 +20,14 @@ public class BasisClock {
     Clock clock() {
         return Clock.systemUTC();
     }
+
+    /**
+     * Imports run to completion. The fault injection harness replaces this bean to stop one
+     * part way through and measure what recovery does about it.
+     */
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
+    com.basis.importer.ImportInterruption importInterruption() {
+        return com.basis.importer.ImportInterruption.NONE;
+    }
 }
