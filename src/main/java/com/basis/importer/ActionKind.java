@@ -15,6 +15,15 @@ public enum ActionKind {
     CASH_DIVIDEND,
     /** A dividend immediately reinvested, which is a distribution followed by a purchase. */
     REINVESTMENT,
+    /**
+     * Interest credited to the account.
+     *
+     * <p>Distinct from {@link #CASH_DIVIDEND} because it is a different kind of income from
+     * a different kind of source, and folding it into dividends would put it under a heading
+     * a tax question would find it in wrongly. A cash sweep fund that pays out as a dividend
+     * on a symbol is a dividend and belongs there; interest on a bare balance is this.
+     */
+    INTEREST,
     /** A charge against the account: a fee billed separately, an ADR fee, a service charge. */
     FEE,
     /** Tax withheld at source, arriving as its own line rather than netted into a dividend. */
