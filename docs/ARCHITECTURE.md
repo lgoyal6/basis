@@ -1005,3 +1005,91 @@ weekly against an unfixed split would have left a pile. `reconcile` now replaces
 breaks for the account it reconciled, so a fixed holding stops having a break and an unfixed
 one keeps exactly one. Anything a person has accepted, rejected or resolved survives, which
 is the whole reason `break_record` is not derived state.
+
+## 27. What a real export changed
+
+The Fidelity importer was built from knowledge of the format, and section 24 said so at the
+top of the file. A genuine Accounts History export then found five defects in one run. All
+five are the kind that reconcile cleanly and are wrong, which is the worst kind.
+
+### The price column is a rounded display value
+
+The finding that mattered. A real row sold `1.844` shares at a stated price of `271.2` for an
+amount of `500`. Multiplying gives `500.0928`. Trusting the price column would have credited
+nine cents that never arrived, on **every trade**, and left a small cash break behind each
+one that no reconciliation could explain.
+
+The amount is the money. The unit price is now derived from it, with charges added back for a
+sale and taken off a purchase, since the amount is net of them either way. The stated price is
+a fallback for rows that carry no amount. Cash now matches the statement exactly, which is the
+only acceptable answer for a tool whose output is an argument with a broker.
+
+### A reinvested distribution is two rows, not one
+
+The export reports `DIVIDEND RECEIVED` for the income and `REINVESTMENT` for the shares it
+bought, as a pair. The importer treated the reinvestment row as income plus a purchase, so the
+distribution was counted twice and the cash balance was wrong by its whole value.
+
+The fix was a config change and no code: Fidelity's `REINVESTMENT` moved under `action.BUY`.
+The `REINVESTMENT` kind stays for brokers that report only the one row, and Schwab's profile
+still uses it. This is the broker-profile design earning itself.
+
+### Two date columns, and only luck was choosing between them
+
+The real header carries `Run Date` and `Settlement Date`. Both were listed as date aliases,
+and `Run Date` won only because it appears first on the page. Alias matching now follows the
+order the profile lists them rather than the order the header happens to be written, and
+`Settlement Date` is no longer a transaction date alias at all. They are different days.
+
+### A byte order mark
+
+Harmless here because the header is on the third line, and fatal for any export whose header
+is the first line: an invisible character glued to the first column name matches nothing.
+
+### A statement never says what kind of instrument something is
+
+The export describes `FXAIX` only as "FIDELITY 500 INDEX FUND". Reading that string is not a
+safe way to decide whether US rules permit averaging its cost basis, so the answer is declared
+in `config/commodities.csv` and anything undeclared is an ordinary equity.
+
+This mattered more than it looked. A commodity's class is part of its identity, so a fund
+imported as an equity and an average cost election made against it as a fund refer to two
+different things, and the election finds nothing to average. Defaulting to equity is the
+conservative direction: the worst it costs is a refusal that tells you to add a line.
+
+### And one the export did not find
+
+`--cost 250.00` did not work. Spring's argument parsing only understands `--name=value`, so
+the value silently failed to bind and the command complained about its own usage, in exactly
+the form the README documented. Options that take a value now accept a space. Which ones
+those are is listed explicitly rather than inferred, because joining any option to whatever
+follows it would turn `reconcile ACC --dry-run file.csv` into a flag whose value is the
+filename.
+
+### Verified end to end
+
+The real file imports, and every number matches the statement: cash exactly `750.00` rather
+than `750.09`, proceeds `500.00`, the dividend booked once, and the reinvested shares carrying
+the basis the distribution paid for them.
+
+The first attempt failed, correctly, because the sale's purchase predates the 90 day window a
+Fidelity download covers. That is the near certain first run experience, so the error now says
+to state the prior holding with `basis open` rather than leaving someone with a bare
+arithmetic complaint. The failed import also rolled itself back on the way out, because
+recovery runs after the command: a nice consequence of where Spring publishes its ready event,
+and exactly what the crash marker was built for.
+
+## 28. The market data allowance, answered
+
+The free plan states **250 API calls per day**, read off the provider's dashboard. It is not
+discoverable from the API: responses carry no rate limit headers of any kind, so there is
+nothing to read and back off from.
+
+`basis.fmp.daily-request-budget` is set to 125, half the allowance, so one refresh run cannot
+spend everything and leave nothing for a second attempt the same day. With a 7 day refresh
+window that covers 125 symbols daily or 875 weekly, far past what a personal ledger holds.
+Bandwidth is capped at 512 MB per 30 days and is not worth designing against: a splits
+response for a symbol with decades of history is under a kilobyte.
+
+This closes the last open question in docs/FEASIBILITY.md, which has carried a blank since
+week 0.

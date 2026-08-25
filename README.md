@@ -36,9 +36,8 @@ Week 4. Ledger core, distributions, transfers, corporate actions, reconciliation
 - Commands to enter corporate actions and opening balances, and to apply a break's
   own suggestion
 
-Every event the ledger declares is handled and reachable. What is left is validation
-against real broker exports, and the free tier request limit, which the market data
-provider does not publish through its API. No web layer.
+Every event the ledger declares is handled and reachable, and the Fidelity importer
+has been validated against a real export. No web layer.
 
 ### How reconciliation works
 
@@ -120,7 +119,8 @@ export BASIS_DB_USER=basis BASIS_DB_PASSWORD=basis
 
 basis="java -jar build/libs/basis.jar"
 
-# what you held before your oldest statement
+# what you held before your oldest statement. a Fidelity download covers 90 days,
+# so a sale in it whose purchase is older needs this first
 $basis open Assets:Broker:Fidelity AAPL 100 --cost 90.00 --on 2015-03-12
 
 # the statements themselves
@@ -171,11 +171,14 @@ Column matching ignores case and anything in parentheses, so `Price ($)` matches
 `Price`. Actions match by longest prefix, since the real text runs on past the verb
 (`YOU BOUGHT PROSHARES ULTRAPRO QQQ`).
 
-Both shipped profiles were written from knowledge of those formats, not from real
-exports, so expect a column name or an action phrase to need correcting on first
-contact. That correction is an edit to the properties file. A row basis cannot read
-stops the import and prints the exact wording it did not recognise, which is how you
-find out what to add.
+The Fidelity profile has been corrected against a real Accounts History export and
+imports it exactly. The Schwab one has not, and is still a guess. A row basis cannot
+read stops the import and prints the exact wording it did not recognise, which is how
+you find out what to add.
+
+Instrument kinds are declared in `config/commodities.csv`, because no statement says
+whether a ticker is a mutual fund and US rules only permit average cost basis for
+one. Anything undeclared is an ordinary equity.
 
 ### Getting your transaction history
 
