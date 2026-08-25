@@ -59,11 +59,22 @@ public class BreakFinder {
     private static final Account EXTERNAL = Account.of("Assets:Bank:External");
 
     private final SplitCalendar splits;
+    private final com.basis.reconcile.ExchangeRates rates;
     private final CommodityCatalog commodities;
     private final SymbolMapping renames;
 
+    /** For tests and callers that have no rate source and do not need one. */
     public BreakFinder(SplitCalendar splits) {
+        this(splits, com.basis.reconcile.ExchangeRates.NONE);
+    }
+
+    // Named explicitly, because two public constructors leave Spring looking for a default one
+    // and failing the whole context. That is the third time this exact omission has broken this
+    // project: FmpSplitFeed, then FmpFxFeed, now here.
+    @org.springframework.beans.factory.annotation.Autowired
+    public BreakFinder(SplitCalendar splits, com.basis.reconcile.ExchangeRates rates) {
         this.splits = splits;
+        this.rates = rates;
         this.commodities = CommodityCatalog.load();
         this.renames = SymbolMappingFile.load(java.nio.file.Path.of("config/symbol-changes.csv"));
     }
@@ -148,7 +159,7 @@ public class BreakFinder {
             // A demo brings its own split history so it never reads or writes the shared
             // reference cache. See DemoSplits for why that is not just tidiness.
             SplitCalendar calendar = upload.demo() ? DemoSplits.CALENDAR : splits;
-            breaks = new Reconciler(calendar, renames).reconcile(state, snapshot);
+            breaks = new Reconciler(calendar, renames, rates).reconcile(state, snapshot);
             reconciled = true;
             stages.add(stage("Reconcile",
                     snapshot.positions().size() + " reported position(s) compared", mark));

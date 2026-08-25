@@ -70,6 +70,12 @@ class BasisCliTest {
     com.basis.reference.SplitRefreshService refresh;
 
     @Autowired
+    com.basis.reference.FxRefreshService fxRefresh;
+
+    @Autowired
+    com.basis.reconcile.ExchangeRates rates;
+
+    @Autowired
     com.basis.persistence.StartupRecovery recovery;
 
     @Autowired
@@ -90,7 +96,8 @@ class BasisCliTest {
         CliOutput out = new CliOutput(
                 new PrintStream(stdout, true, StandardCharsets.UTF_8),
                 new PrintStream(stdout, true, StandardCharsets.UTF_8));
-        cli = new BasisCli(projector, derived, breaks, referenceData, refresh, recovery, importer, out);
+        cli = new BasisCli(projector, derived, breaks, referenceData, rates, refresh, fxRefresh,
+                recovery, importer, out);
     }
 
     private int run(String... args) {

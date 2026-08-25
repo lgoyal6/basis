@@ -80,6 +80,12 @@ class ClosingTheLoopTest {
     com.basis.reference.SplitRefreshService refresh;
 
     @Autowired
+    com.basis.reference.FxRefreshService fxRefresh;
+
+    @Autowired
+    com.basis.reconcile.ExchangeRates rates;
+
+    @Autowired
     com.basis.persistence.StartupRecovery recovery;
 
     @Autowired
@@ -101,7 +107,8 @@ class ClosingTheLoopTest {
     private void newCli() {
         stdout = new ByteArrayOutputStream();
         PrintStream stream = new PrintStream(stdout, true, StandardCharsets.UTF_8);
-        cli = new BasisCli(projector, derived, breaks, referenceData, refresh, recovery, importer,
+        cli = new BasisCli(projector, derived, breaks, referenceData, rates, refresh, fxRefresh,
+                recovery, importer,
                 new CliOutput(stream, stream));
     }
 
