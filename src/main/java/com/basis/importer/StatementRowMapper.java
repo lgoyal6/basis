@@ -19,7 +19,10 @@ import com.basis.reference.SymbolMapping;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Currency;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Locale;
 
 /**
  * Turns a statement row into the events it represents.
@@ -67,12 +70,7 @@ public final class StatementRowMapper {
     /** @throws StatementFormatException if the row cannot be understood */
     public List<LedgerEvent> toEvents(StatementRow row) {
         ActionKind kind = profile.classify(row.action())
-                .orElseThrow(() -> new StatementFormatException(row.location(source)
-                        + ": the action '" + row.action() + "' is not recognised."
-                        + " Nothing has been imported. If this is a transaction basis should"
-                        + " understand, add the phrase to the " + profile.name() + " profile in"
-                        + " config/brokers. Phrases it knows: "
-                        + String.join(", ", profile.knownPhrases())));
+                .orElseThrow(() -> new StatementFormatException(unrecognised(row)));
 
         return switch (kind) {
             case BUY -> List.of(buy(row));
@@ -86,6 +84,86 @@ public final class StatementRowMapper {
             case SECURITY_TRANSFER -> List.of(securityTransfer(row));
             case IGNORE -> List.of();
         };
+    }
+
+    /**
+     * Why a row stopped the import, and what to actually do about it.
+     *
+     * <p>The default advice is to add the phrase to the broker profile, which is right for
+     * almost everything and badly wrong for a corporate action. A merger or a split restates
+     * a cost basis, and the statement row says only that it happened, never at what ratio or
+     * against which lots. Adding the phrase would let the import finish and leave every later
+     * sale of that holding computing a gain from a basis nobody established. So when the row
+     * looks like one of those, the message says so and names the command that handles it
+     * properly. See docs/ARCHITECTURE.md section 29.3.
+     */
+    private String unrecognised(StatementRow row) {
+        String base = row.location(source) + ": the action '" + row.action() + "' is not"
+                + " recognised. Nothing has been imported.";
+        String corporateAction = corporateActionAdvice(row.action());
+        if (corporateAction != null) {
+            return base + " " + corporateAction;
+        }
+        return base + " If this is a transaction basis should understand, add the phrase to the "
+                + profile.name() + " profile in config/brokers. Phrases it knows: "
+                + String.join(", ", profile.knownPhrases());
+    }
+
+    /** Null unless the action reads like a corporate action, which needs a command, not a profile edit. */
+    private static String corporateActionAdvice(String action) {
+        String text = action.toUpperCase(Locale.ROOT);
+        // A rename is the one of these that moves no value, so it does not get the warning
+        // about restating a basis. It gets a different and shorter answer.
+        if (text.startsWith("NAME CHANGE") || text.startsWith("SYMBOL CHANGE")) {
+            return "A rename moves no value and is not an event. Add a line to"
+                    + " config/symbol-changes.csv, which is where the ledger keeps renames, then"
+                    + " run the import again.";
+        }
+        for (Map.Entry<String, String> entry : CORPORATE_ACTIONS.entrySet()) {
+            if (text.startsWith(entry.getKey())) {
+                return "That is a corporate action, and it is left out of the profile on purpose."
+                        + " The row records that it happened but not on what terms, so importing it"
+                        + " would restate a cost basis nobody stated, and every later sale of that"
+                        + " holding would compute its gain from it. " + entry.getValue()
+                        + " Then run the import again. Adding the phrase to the profile to get past"
+                        + " this is the one edit to that file that will cost you money.";
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Corporate action wording, mapped to what to do instead.
+     *
+     * <p>Longest first, so REVERSE SPLIT is not answered as a SPLIT, and each value is a whole
+     * sentence because the remedy is not always a command: a rename is a config entry, and a
+     * merger needs somebody to read the terms before anything can be applied at all.
+     */
+    private static final Map<String, String> CORPORATE_ACTIONS = new LinkedHashMap<>();
+
+    static {
+        CORPORATE_ACTIONS.put("REVERSE SPLIT", "Apply it with 'basis apply reverse-split', giving the"
+                + " ratio from the broker's notice.");
+        CORPORATE_ACTIONS.put("CASH IN LIEU", "Apply the split it came from first, then book the"
+                + " fractional sale with 'basis apply cash-in-lieu'. It is a real disposal and is"
+                + " usually the one taxable event in a corporate action that a statement does not"
+                + " label as one.");
+        CORPORATE_ACTIONS.put("STOCK DIVIDEND", "Apply it with 'basis apply stock-dividend'.");
+        CORPORATE_ACTIONS.put("SPIN OFF", "Apply it with 'basis apply spin-off', giving the basis"
+                + " fraction from the company's Form 8937.");
+        CORPORATE_ACTIONS.put("SPIN-OFF", "Apply it with 'basis apply spin-off', giving the basis"
+                + " fraction from the company's Form 8937.");
+        CORPORATE_ACTIONS.put("SPLIT", "Apply it with 'basis apply split', giving the ratio. If the"
+                + " symbol has split history available, 'basis refresh-splits' can find it for you.");
+        CORPORATE_ACTIONS.put("MERGER", "Read what the merger actually paid out, then apply it as the"
+                + " parts it consisted of: a share exchange is 'basis apply split' at the exchange"
+                + " ratio, and any cash paid out is a sale. basis will not guess which.");
+        CORPORATE_ACTIONS.put("EXCHANGE", "Read the terms, then apply it as what it did: a ratio"
+                + " change is 'basis apply split', and a swap into a different security is a sale"
+                + " and a purchase.");
+        CORPORATE_ACTIONS.put("CONVERSION", "Read the terms, then apply it as what it did: a ratio"
+                + " change is 'basis apply split', and a swap into a different security is a sale"
+                + " and a purchase.");
     }
 
     private LedgerEvent buy(StatementRow row) {
