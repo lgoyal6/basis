@@ -3,7 +3,7 @@
       th:replace="~{layout :: page('Check your positions', ~{::main})}">
 <main>
   <section class="hero">
-    <h1>Your broker's numbers, checked against your own trades.</h1>
+    <h1>Check your broker's arithmetic against your own trades.</h1>
     <p class="lede">Upload the transaction history your broker gives you. basis rebuilds every
       position from scratch, then tells you exactly where its answer differs from theirs and
       what most likely caused it.</p>
@@ -103,17 +103,17 @@
     <h2>Three answers, not two</h2>
     <div class="cards">
       <div class="c ok">
-        <h3>Confirmed</h3>
+        <h3>confirmed</h3>
         <p>The share count is off by exactly 4 to 1, and there really was a 4 for 1 split on that
           date. basis names it and offers to apply it.</p>
       </div>
       <div class="c warn">
-        <h3>Suspected</h3>
+        <h3>suspected</h3>
         <p>The ratio is right but nothing confirms a split. That is arithmetic, not evidence, so
           basis says so and asks you instead of guessing.</p>
       </div>
       <div class="c bad">
-        <h3>Ruled out</h3>
+        <h3>ruled out</h3>
         <p>Split history was checked and contains no such split. The ratio is a coincidence, so
           this points at missing trades instead.</p>
       </div>

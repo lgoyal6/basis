@@ -100,7 +100,7 @@
   <section class="positions" th:if="${!result.positions().isEmpty()}">
     <h2>What your history says you hold</h2>
     <table>
-      <thead><tr><th>Symbol</th><th>Quantity</th><th>Cost basis</th><th>Lots</th></tr></thead>
+      <thead><tr><th>Symbol</th><th class="num">Quantity</th><th class="num">Cost basis</th><th class="num">Lots</th></tr></thead>
       <tbody>
         <tr th:each="p : ${result.positions()}">
           <td th:text="${p.symbol()}">AAPL</td>

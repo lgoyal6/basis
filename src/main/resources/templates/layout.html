@@ -4,7 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title th:text="${title} + ' | basis'">basis</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9878;</text></svg>">
+  <!-- A ruled tick in a box: what you draw next to a line you have checked. -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%231b1a17'/><path d='M3.5 8.6l3 3 6-7' stroke='%23fdfcfa' stroke-width='1.8' fill='none' stroke-linecap='square'/></svg>">
   <link rel="stylesheet" th:href="@{/basis.css}">
   <!-- Vendored, not from a CDN. A page asking a stranger to upload their trading history
        should not also be asking a third party to watch them do it. -->
@@ -13,9 +14,9 @@
 <body>
   <header class="top">
     <div class="wrap">
-      <a class="brand" th:href="@{/}">basis<span>.</span></a>
+      <a class="brand" th:href="@{/}">basis</a>
       <nav>
-        <a th:href="@{/privacy}">What happens to my data</a>
+        <a th:href="@{/privacy}">Your data</a>
         <a href="https://github.com/lgoyal6/basis">Source</a>
       </nav>
     </div>
