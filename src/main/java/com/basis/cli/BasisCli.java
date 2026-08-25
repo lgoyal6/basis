@@ -1,10 +1,17 @@
 package com.basis.cli;
 
 import com.basis.domain.Account;
+import com.basis.domain.Commodity;
+import com.basis.domain.Money;
+import com.basis.domain.Price;
+import com.basis.domain.Quantity;
+import com.basis.domain.event.LedgerEvent;
+import com.basis.importer.AssertedEntries;
 import com.basis.importer.BrokerProfile;
 import com.basis.importer.BrokerProfiles;
 import com.basis.importer.ImportReport;
 import com.basis.importer.ImportService;
+import com.basis.ledger.LedgerAccounts;
 import com.basis.ledger.LedgerState;
 import com.basis.ledger.PositionKey;
 import com.basis.persistence.BreakRecordRepository;
@@ -13,6 +20,10 @@ import com.basis.persistence.DerivedStateRepository;
 import com.basis.persistence.ReferenceDataRepository;
 import com.basis.persistence.StartupRecovery;
 import com.basis.reconcile.BreakRecord;
+import com.basis.reconcile.KnownSplit;
+import com.basis.reconcile.ProbableCause;
+import com.basis.reconcile.Ratio;
+import com.basis.reconcile.RatioDetector;
 import com.basis.reconcile.BreakStatus;
 import com.basis.reconcile.BrokerSnapshot;
 import com.basis.reconcile.Reconciler;
@@ -20,6 +31,7 @@ import com.basis.reconcile.SnapshotScope;
 import com.basis.reference.SplitRefreshService;
 import com.basis.reference.SymbolMapping;
 import com.basis.reference.SymbolMappingFile;
+import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
@@ -110,6 +122,8 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
     private int dispatch(String command, List<String> rest, ApplicationArguments args) {
         return switch (command) {
             case "import" -> importStatement(rest, args);
+            case "open" -> openingBalance(rest, args);
+            case "apply" -> apply(rest, args);
             case "status" -> status();
             case "breaks" -> listBreaks(rest);
             case "settle" -> settle(rest, args);
@@ -150,6 +164,215 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
             out.line("  " + note);
         }
         return OK;
+    }
+
+    /**
+     * States what an account already held before the imported history begins.
+     *
+     * <p>Brokers keep a few years. A position older than that has no statement to import, so
+     * it has to be asserted or every holding that predates the oldest download reconciles as
+     * a security the ledger has never heard of.
+     */
+    private int openingBalance(List<String> rest, ApplicationArguments args) {
+        String usage = "open <account> <symbol> <quantity> [--cost PRICE] [--kind KIND] --on yyyy-mm-dd";
+        Account account = Account.of(requireArg(rest, 0, usage));
+        String symbol = requireArg(rest, 1, usage);
+        BigDecimal quantity = new BigDecimal(requireArg(rest, 2, usage));
+        LocalDate on = on(args, usage);
+        Commodity commodity = AssertedEntries.commodity(symbol, optional(args, "kind").orElse(""));
+
+        LedgerEvent event;
+        if (commodity.isCash()) {
+            event = AssertedEntries.openingCash(account, Money.of(quantity, commodity.asCurrency()), on);
+        } else {
+            String cost = optional(args, "cost").orElseThrow(() -> new IllegalArgumentException(
+                    "an opening balance of " + symbol + " needs --cost, the price it was acquired at."
+                            + " Without a basis every later sale of it reports the wrong gain."));
+            event = AssertedEntries.openingSecurity(account, commodity, Quantity.of(quantity),
+                    Price.of(new BigDecimal(cost), java.util.Currency.getInstance("USD")), on);
+        }
+        return recordAsserted(event, "opening balance");
+    }
+
+    /**
+     * Applies a corporate action the ledger could always handle and nothing could reach.
+     *
+     * <p>These are asserted rather than parsed. A transaction export reports corporate
+     * actions inconsistently and often not at all, and a split read wrongly restates every
+     * lot in a position, so basis takes them from a person or from reference data instead of
+     * guessing at a row.
+     */
+    private int apply(List<String> rest, ApplicationArguments args) {
+        String action = requireArg(rest, 0,
+                "apply split|reverse-split|stock-dividend|spin-off|break ...");
+        return switch (action) {
+            case "split" -> applySplit(rest, args, false);
+            case "reverse-split" -> applySplit(rest, args, true);
+            case "stock-dividend" -> applyStockDividend(rest, args);
+            case "spin-off" -> applySpinOff(rest, args);
+            case "break" -> applyBreak(rest, args);
+            case "average-cost" -> applyAverageCost(rest, args);
+            default -> throw new IllegalArgumentException("unknown action '" + action
+                    + "'. Expected split, reverse-split, stock-dividend, spin-off, average-cost"
+                    + " or break.");
+        };
+    }
+
+    private int applySplit(List<String> rest, ApplicationArguments args, boolean reverse) {
+        String name = reverse ? "reverse-split" : "split";
+        String usage = "apply " + name + " <account> <symbol> <new:old> --on yyyy-mm-dd"
+                + (reverse ? " [--cash-in-lieu AMOUNT]" : "");
+        Account account = Account.of(requireArg(rest, 1, usage));
+        Commodity commodity = AssertedEntries.commodity(requireArg(rest, 2, usage),
+                optional(args, "kind").orElse(""));
+        long[] ratio = AssertedEntries.ratio(requireArg(rest, 3, usage));
+        LocalDate on = on(args, usage);
+
+        LedgerEvent event = reverse
+                ? AssertedEntries.reverseSplit(account, commodity, ratio[0], ratio[1], on)
+                : AssertedEntries.split(account, commodity, ratio[0], ratio[1], on);
+        int code = recordAsserted(event, name);
+
+        return optional(args, "cash-in-lieu")
+                .map(amount -> sellFraction(account, commodity, new BigDecimal(amount), on))
+                .orElse(code);
+    }
+
+    /**
+     * Sells whatever fraction of a share the reverse split left behind.
+     *
+     * <p>Run after the restatement, against the position it produced, because the fraction
+     * only exists once the split has been applied. It is a real disposal and often the one
+     * taxable event in a corporate action that a statement never labels as one.
+     */
+    private int sellFraction(Account account, Commodity commodity, BigDecimal proceeds, LocalDate on) {
+        Quantity held = projector.project()
+                .position(LedgerAccounts.holding(account, commodity), commodity);
+        BigDecimal fraction = held.value().remainder(BigDecimal.ONE);
+        if (fraction.signum() == 0) {
+            out.line("no fractional share was left, so nothing was sold in lieu");
+            return OK;
+        }
+        return recordAsserted(AssertedEntries.cashInLieu(account, commodity, Quantity.of(fraction),
+                AssertedEntries.usd(proceeds), on), "cash in lieu");
+    }
+
+    private int applyAverageCost(List<String> rest, ApplicationArguments args) {
+        String usage = "apply average-cost <account> <symbol> --on yyyy-mm-dd [--kind MUTUAL_FUND]";
+        Account account = Account.of(requireArg(rest, 1, usage));
+        Commodity commodity = AssertedEntries.commodity(requireArg(rest, 2, usage),
+                optional(args, "kind").orElse("MUTUAL_FUND"));
+        return recordAsserted(
+                AssertedEntries.averageCost(account, commodity, on(args, usage)),
+                "average cost election for " + commodity);
+    }
+
+    private int applyStockDividend(List<String> rest, ApplicationArguments args) {
+        String usage = "apply stock-dividend <account> <symbol> <shares> --on yyyy-mm-dd";
+        Account account = Account.of(requireArg(rest, 1, usage));
+        Commodity commodity = AssertedEntries.commodity(requireArg(rest, 2, usage),
+                optional(args, "kind").orElse(""));
+        Quantity shares = Quantity.of(new BigDecimal(requireArg(rest, 3, usage)));
+        return recordAsserted(
+                AssertedEntries.stockDividend(account, commodity, shares, on(args, usage)),
+                "stock dividend");
+    }
+
+    private int applySpinOff(List<String> rest, ApplicationArguments args) {
+        String usage = "apply spin-off <account> <parent> <child> <shares-per-parent-share>"
+                + " <parent-basis-fraction> --on yyyy-mm-dd";
+        Account account = Account.of(requireArg(rest, 1, usage));
+        Commodity parent = AssertedEntries.commodity(requireArg(rest, 2, usage), "");
+        Commodity child = AssertedEntries.commodity(requireArg(rest, 3, usage), "");
+        Quantity perShare = Quantity.of(new BigDecimal(requireArg(rest, 4, usage)));
+        BigDecimal fraction = new BigDecimal(requireArg(rest, 5, usage));
+        return recordAsserted(
+                AssertedEntries.spinOff(account, parent, child, perShare, fraction, on(args, usage)),
+                "spin off");
+    }
+
+    /**
+     * Does what a break said to do.
+     *
+     * <p>The reconciler already worked this out: it found the ratio, matched it against the
+     * split history, named the date and printed "apply the 4 for 1 split of AAPL dated
+     * 2020-08-31". Until this command existed that instruction could not be followed, which
+     * made the product's headline finding a dead end.
+     *
+     * <p>Only acts on a break whose cause is confirmed. A suspicion is a ratio with nothing
+     * behind it, and restating every lot in a position on the strength of a coincidence is
+     * exactly the kind of confident wrong move this project refuses to make.
+     *
+     * <p>The fix is re-derived from reference data rather than read out of the break's
+     * sentence. The reference data is the authority on what the split was; the break is a
+     * report about a disagreement.
+     */
+    private int applyBreak(List<String> rest, ApplicationArguments args) {
+        long id = Long.parseLong(requireArg(rest, 1, "apply break <break-id>"));
+        BreakRecord found = breaks.findOpen(id).orElseThrow(() -> new IllegalArgumentException(
+                "no open break with id " + id));
+
+        if (!found.cause().confident()) {
+            throw new IllegalArgumentException("break " + id + " is a suspicion, not a finding: "
+                    + found.cause().explanation()
+                    + " Applying a corporate action on the strength of a ratio alone would be a guess."
+                    + " Refresh the reference data and reconcile again, or apply the action explicitly.");
+        }
+        if (!found.cause().code().equals(ProbableCause.UNAPPLIED_SPLIT)
+                && !found.cause().code().equals(ProbableCause.UNAPPLIED_REVERSE_SPLIT)) {
+            throw new IllegalArgumentException("break " + id + " is a " + found.cause().code()
+                    + ", which basis cannot apply for you. Its suggestion was: "
+                    + found.cause().suggestedAction());
+        }
+
+        Ratio ratio = RatioDetector.between(found.computedQuantity(), found.brokerQuantity())
+                .orElseThrow(() -> new IllegalStateException("break " + id
+                        + " no longer reduces to a corporate action ratio; reconcile again"));
+        Account broker = brokerRootOf(found.account());
+        LocalDate earliest = earliestAcquisition(broker, found.commodity()).orElse(found.asOf());
+
+        KnownSplit split = referenceData.coverageBetween(found.commodity(), earliest, found.asOf())
+                .matching(ratio)
+                .orElseThrow(() -> new IllegalStateException("the split that explained break " + id
+                        + " is no longer in the reference data; refresh it and reconcile again"));
+
+        LedgerEvent event = split.numerator() > split.denominator()
+                ? AssertedEntries.split(broker, found.commodity(), split.numerator(), split.denominator(),
+                        split.date())
+                : AssertedEntries.reverseSplit(broker, found.commodity(), split.numerator(),
+                        split.denominator(), split.date());
+
+        recordAsserted(event, "the " + split.ratio() + " split of " + found.commodity()
+                + " dated " + split.date());
+        breaks.settle(id, BreakStatus.ACCEPTED,
+                "applied the " + split.ratio() + " split dated " + split.date());
+        out.line("break " + id + " settled as ACCEPTED. Reconcile again to confirm nothing is left.");
+        return OK;
+    }
+
+    /** A holding lives at broker:SYMBOL, so the broker is its parent. */
+    private static Account brokerRootOf(Account holding) {
+        List<String> segments = holding.segments();
+        return Account.of(String.join(":", segments.subList(0, segments.size() - 1)));
+    }
+
+    private java.util.Optional<LocalDate> earliestAcquisition(Account broker, Commodity commodity) {
+        return projector.project().openLots(LedgerAccounts.holding(broker, commodity), commodity).stream()
+                .map(com.basis.domain.Lot::acquisitionDate)
+                .min(LocalDate::compareTo);
+    }
+
+    private int recordAsserted(LedgerEvent event, String what) {
+        ImportReport report = importer.recordAsserted(event, Path.of(what.replace(' ', '-')));
+        out.line(report.changedAnything()
+                ? what + " applied"
+                : what + " was already recorded, so nothing changed");
+        return OK;
+    }
+
+    private static LocalDate on(ApplicationArguments args, String usage) {
+        return LocalDate.parse(optional(args, "on")
+                .orElseThrow(() -> new IllegalArgumentException("usage: basis " + usage)));
     }
 
     /** What the ledger currently believes, and how much of it is unexplained. */
@@ -263,6 +486,8 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
                 .reconcile(projector.project(), snapshot);
 
         if (found.isEmpty()) {
+            // Clears any break that a previous run left open and that no longer applies.
+            breaks.replaceOpen(account, List.of());
             out.line("no breaks: " + snapshot.positions().size() + " reported position(s) agree with the ledger");
             return OK;
         }
@@ -273,7 +498,7 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
         if (args.containsOption("dry-run")) {
             out.line(found.size() + " break(s), not recorded (--dry-run)");
         } else {
-            breaks.recordAll(found);
+            breaks.replaceOpen(account, found);
             out.line(found.size() + " break(s) recorded");
         }
         return BREAKS_FOUND;
@@ -350,6 +575,16 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
     public static void printUsage(CliOutput out) {
         out.line("basis, a ledger that argues with your broker");
         out.blank();
+        out.line("  open <account> <symbol> <quantity> [--cost PRICE] --on yyyy-mm-dd");
+        out.line("      state what an account already held before the imported history begins");
+        out.line("  apply split|reverse-split <account> <symbol> <new:old> --on yyyy-mm-dd");
+        out.line("      apply a corporate action the statements do not carry");
+        out.line("  apply stock-dividend <account> <symbol> <shares> --on yyyy-mm-dd");
+        out.line("  apply spin-off <account> <parent> <child> <per-share> <basis-fraction> --on DATE");
+        out.line("  apply average-cost <account> <symbol> --on yyyy-mm-dd");
+        out.line("      elect average cost, permitted for mutual funds and not for equities");
+        out.line("  apply break <break-id>");
+        out.line("      do what a confirmed break said to do, then settle it");
         out.line("  import <broker> <account> <statement.csv> [--external ACCOUNT]");
         out.line("      read a broker statement into the ledger. Brokers available: "
                 + String.join(", ", BrokerProfiles.available()));
