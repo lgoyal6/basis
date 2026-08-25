@@ -44,6 +44,7 @@
     </details>
   </section>
 
+  <div id="results">
   <section class="questions" th:if="${!result.ambiguities().isEmpty()}">
     <h2>basis needs you to decide</h2>
     <p class="lede">These have the shape of a corporate action, but nothing basis could check
@@ -53,7 +54,12 @@
     <article class="question" th:each="q : ${result.ambiguities()}">
       <p class="prompt" th:text="${q.prompt()}">What happened?</p>
       <div class="options">
-        <form method="post" th:action="@{/resolve}" th:each="o : ${q.options()}">
+        <!-- hx-boost style: posts and replaces the whole results region in place, so the
+             page does not jump back to the top after every decision. Falls back to an
+             ordinary form post when htmx is not there. -->
+        <form method="post" th:action="@{/resolve}" th:each="o : ${q.options()}"
+              hx-post="/resolve" hx-target="#results" hx-select="#results"
+              hx-swap="outerHTML" hx-disabled-elt="find button">
           <input type="hidden" name="kind" th:value="${o.kind()}">
           <input type="hidden" name="symbol" th:value="${q.symbol()}">
           <input type="hidden" name="detail" th:value="${o.detail()}">
@@ -105,6 +111,8 @@
       </tbody>
     </table>
   </section>
+
+  </div>
 
   <section class="cleanup">
     <form method="post" th:action="@{/delete}">

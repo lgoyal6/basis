@@ -119,3 +119,25 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
 footer{margin:52px 0 60px;padding-top:20px;border-top:1px solid var(--line)}
 footer p{color:var(--dim);font-size:13px;max-width:66ch}
 @media(max-width:560px){.top nav{font-size:13px;gap:11px}}
+
+/* Drag and drop. The native file input stays in the DOM and stays the thing that receives
+   the file, so a drop, a click and a keyboard tab all end up in the same place and the form
+   still submits with JavaScript off. */
+.drop{display:block;position:relative;padding:18px;background:#05070b;border:1px dashed #2b3543;
+      border-radius:8px;cursor:pointer;transition:border-color .12s,background .12s}
+.drop:hover,.drop:focus-within{border-color:var(--blue);background:#070b12}
+.drop input[type=file]{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;
+                       border:0;padding:0}
+.drop-hint{display:block;color:var(--dim);font-size:14px;text-align:center;pointer-events:none}
+.drop input[type=file]:focus-visible + .drop-hint{color:var(--blue)}
+
+/* Shown only while htmx has a request in flight. Not a spinner on its own: it names the
+   stages, because on a long history the useful information is what is happening. */
+.working{display:none;align-items:flex-start;gap:11px;margin-top:16px;padding:13px 15px;
+         background:#05070b;border:1px solid var(--line);border-left:3px solid var(--blue);
+         border-radius:7px;font-size:14px;color:var(--dim)}
+.working.htmx-request,.working.busy{display:flex}
+.stages-live b{color:var(--ink)}
+.spin{flex:0 0 auto;width:14px;height:14px;margin-top:3px;border-radius:50%;
+      border:2px solid #2b3543;border-top-color:var(--blue);animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
