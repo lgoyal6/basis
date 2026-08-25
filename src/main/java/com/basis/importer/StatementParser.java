@@ -53,7 +53,14 @@ public final class StatementParser {
         }
     }
 
-    public List<StatementRow> parse(List<String> lines, String source) {
+    public List<StatementRow> parse(List<String> rawLines, String source) {
+        // The real export starts with a byte order mark. It lands on the first line here, but
+        // a file whose header is the first line would otherwise have an invisible character
+        // glued to its first column name and match nothing.
+        List<String> lines = new ArrayList<>(rawLines);
+        if (!lines.isEmpty()) {
+            lines.set(0, lines.get(0).replace("\uFEFF", ""));
+        }
         int headerIndex = findHeader(lines, source);
         Map<String, Integer> columns = mapColumns(CsvLine.split(lines.get(headerIndex)), source, headerIndex + 1);
 
@@ -114,16 +121,32 @@ public final class StatementParser {
         return Map.copyOf(columns);
     }
 
-    /** Matches a header cell to a column basis needs, ignoring case and any parenthesised unit. */
+    /**
+     * Matches a header cell to a column basis needs, ignoring case and any parenthesised unit.
+     *
+     * <p>Aliases are tried in the order the profile lists them, not in the order the header
+     * happens to be written. A real Fidelity export contains both "Run Date" and "Settlement
+     * Date", and both are dates a profile might name. Scanning the header instead would pick
+     * whichever came first on the page, which is luck rather than a rule, and the two are
+     * different days.
+     */
     private int indexOf(List<String> header, String column) {
-        List<String> aliases = profile.aliasesFor(column);
-        for (int index = 0; index < header.size(); index++) {
-            String cell = header.get(index).replaceAll("\\(.*?\\)", "").trim().toLowerCase(Locale.ROOT);
-            if (aliases.contains(cell)) {
-                return index;
+        for (String alias : profile.aliasesFor(column)) {
+            for (int index = 0; index < header.size(); index++) {
+                if (normalise(header.get(index)).equals(alias)) {
+                    return index;
+                }
             }
         }
         return -1;
+    }
+
+    /** Strips a byte order mark, lower cases, and drops any parenthesised unit. */
+    private static String normalise(String cell) {
+        return cell.replace("\uFEFF", "")
+                .replaceAll("\\(.*?\\)", "")
+                .trim()
+                .toLowerCase(Locale.ROOT);
     }
 
     /**
