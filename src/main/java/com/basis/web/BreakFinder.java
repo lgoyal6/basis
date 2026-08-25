@@ -142,7 +142,10 @@ public class BreakFinder {
             BrokerSnapshot snapshot = PositionsFile.parse(upload.positionLines(),
                     name(upload.positionFilename()), upload.account(), LocalDate.now(),
                     SnapshotScope.SECURITIES_ONLY);
-            breaks = new Reconciler(splits, renames).reconcile(state, snapshot);
+            // A demo brings its own split history so it never reads or writes the shared
+            // reference cache. See DemoSplits for why that is not just tidiness.
+            SplitCalendar calendar = upload.demo() ? DemoSplits.CALENDAR : splits;
+            breaks = new Reconciler(calendar, renames).reconcile(state, snapshot);
             reconciled = true;
             stages.add(stage("Reconcile",
                     snapshot.positions().size() + " reported position(s) compared", mark));
@@ -209,8 +212,16 @@ public class BreakFinder {
         return List.copyOf(byCommodity.values());
     }
 
-    private static LedgerEvent toEvent(UploadedStatement.AppliedChoice choice, Account account) {
-        Commodity commodity = Commodity.equity(choice.symbol());
+    /**
+     * Builds the event a choice stands for.
+     *
+     * <p>The commodity is resolved through the catalog, not assumed to be an equity. A
+     * commodity's class is part of its identity, so a mutual fund named as an equity is a
+     * different commodity: the corporate action found no lots to restate, applied silently to
+     * nothing, and the break it was supposed to fix stayed exactly where it was.
+     */
+    private LedgerEvent toEvent(UploadedStatement.AppliedChoice choice, Account account) {
+        Commodity commodity = commodities.resolve(choice.symbol());
         return switch (choice.kind()) {
             case "split" -> {
                 long[] ratio = AssertedEntries.ratio(choice.detail());

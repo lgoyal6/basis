@@ -100,11 +100,16 @@ public final class Ambiguities {
                             + " because applying a split that did not happen would put a wrong"
                             + " cost basis on every share you own."));
         } else {
-            options.add(new Option("reverse-split", ratio[1] + ":" + ratio[0],
-                    "A 1 for " + ratio[0] + " reverse split",
-                    "Restates every lot of " + symbol + " at a " + ratio[0] + " times higher unit"
-                            + " cost and correspondingly fewer shares. Any fraction left over is"
-                            + " usually sold for cash in lieu, which is a separate taxable event."));
+            // new:old, the same orientation "apply reverse-split" takes and the same
+            // orientation the detected ratio already has. Swapping them here produced a
+            // 3:1 "reverse" split, which the event correctly refuses as a split, and the
+            // refusal surfaced as a 500 on a page the user could no longer load.
+            options.add(new Option("reverse-split", ratio[0] + ":" + ratio[1],
+                    "A " + ratio[0] + " for " + ratio[1] + " reverse split",
+                    "Restates every lot of " + symbol + " at " + ratio[1] + " times the unit cost"
+                            + " and " + ratio[0] + "/" + ratio[1] + " of the shares. Any fraction"
+                            + " left over is usually sold for cash in lieu, which is a separate"
+                            + " taxable event."));
             options.add(new Option("", "", "Something is missing instead",
                     "Leaves the ledger alone. Choose this if the shortfall is a sale or a"
                             + " transfer out that the uploaded history does not contain."));

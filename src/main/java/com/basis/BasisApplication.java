@@ -55,6 +55,10 @@ public class BasisApplication {
      * a server that has been up for a week has answered a great many questions.
      */
     private static void serve(String[] args) {
+        // Overrides spring.main.web-application-type, which defaults to none for the CLI.
+        // A property set in application.yml wins over the builder, so this has to be a
+        // property too rather than only a builder call.
+        System.setProperty("BASIS_WEB_TYPE", "servlet");
         new SpringApplicationBuilder(BasisApplication.class)
                 .web(WebApplicationType.SERVLET)
                 // Gates the CLI runner off and the controllers on, so neither mode has to

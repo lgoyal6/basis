@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page('What happens to my data', ~{::main})}">
+<main>
+  <section class="prose">
+    <h1>What happens to the file you upload</h1>
+
+    <p>You are being asked to upload a record of everything you have bought and sold. That is
+      about as personal as a document gets, and "trust us" is not an answer. So here is what
+      the code actually does, and every claim on this page is checkable by reading the source.</p>
+
+    <h2>It is never written to a database</h2>
+    <p>Your statement is held in the server's memory and nowhere else. Not in Postgres, not on
+      disk, not in a log file. This matters because deleting a row from a database does not
+      really delete it: there are backups, replicas and write-ahead logs, and a promise to
+      delete is only as good as all of them. A promise that it was never written down is one
+      you can verify by reading
+      <a href="https://github.com/lgoyal6/basis/blob/main/src/main/java/com/basis/web/SessionStore.java">one
+      file</a>.</p>
+
+    <h2>It is deleted in <span th:text="${lifetimeHours}">2</span> hours, or the moment you ask</h2>
+    <p>There is a delete button on the results page. It removes the entry immediately. If you
+      close the tab and forget, it expires on its own and becomes unreachable at that instant
+      rather than whenever some cleanup job next runs.</p>
+
+    <h2>There is no account, so there is nothing to link it to</h2>
+    <p>No email, no password, no signup. You get one cookie holding a random 256-bit
+      identifier, which is how the results page finds your upload again. It is not a name, a
+      counter, or a hash of your file, and it means nothing once the session is gone.</p>
+
+    <h2>What is counted</h2>
+    <p>How many uploads parsed, which broker formats were involved, and how many breaks of each
+      kind were found. That is it: counts by category. No symbols, no quantities, no dates, no
+      filenames, no account numbers, nothing that could be joined back to a person or a
+      holding. The counters exist to answer "does this find real errors", which is a question
+      about how many, not about whose.</p>
+
+    <h2>What basis never asks for</h2>
+    <p>Your broker login. There is no OAuth, no bank connection, no read-only key. basis reads
+      files you already have. It cannot see your account and cannot place a trade, because it
+      has no way to reach your broker at all.</p>
+
+    <h2>If you would rather not upload anything</h2>
+    <p>Don't. The same tool runs on your own machine over your own Postgres, and the web
+      version exists only because installing a JDK is a lot to ask of somebody who just wants
+      to know whether their cost basis is wrong.
+      <a href="https://github.com/lgoyal6/basis">The command line version</a> sends nothing
+      anywhere.</p>
+  </section>
+</main>
+</html>

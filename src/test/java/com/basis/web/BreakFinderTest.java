@@ -129,6 +129,32 @@ class BreakFinderTest {
         assertThat(result.confirmedCount()).isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("a reverse split offered for a shortfall is one the ledger will actually accept")
+    void theReverseSplitOptionIsTheRightWayRound() {
+        // This was backwards. A broker reporting fewer shares got offered a "3:1 reverse
+        // split", which is a split, which ReverseSplit correctly refuses. The refusal became
+        // a 500 on the results page, and because the choice had already been saved to the
+        // session, every later page load threw the same error. The orientation and the
+        // save-after-validating are both fixed; this pins the orientation.
+        List<String> history = new java.util.ArrayList<>(HISTORY);
+        BreakFinder finder = finder(SplitCalendar.EMPTY);
+        UploadedStatement upload = UploadedStatement.of(
+                "fidelity", history, positions("AAPL,2"), "h.csv", "p.csv", false);
+
+        Ambiguities.Option reverse = finder.find(upload).ambiguities().get(0).options().get(0);
+        assertThat(reverse.kind()).isEqualTo("reverse-split");
+        assertThat(reverse.detail())
+                .as("new:old, so the new count has to be the smaller number")
+                .isEqualTo("1:5");
+
+        UploadedStatement decided = upload.plus(new UploadedStatement.AppliedChoice(
+                reverse.kind(), "AAPL", reverse.detail(), LocalDate.of(2021, 1, 4)));
+        assertThat(finder.find(decided).breaks())
+                .as("the ledger accepted it and the position now agrees")
+                .isEmpty();
+    }
+
     private static BreakFinder finder(SplitCalendar splits) {
         return new BreakFinder(splits);
     }

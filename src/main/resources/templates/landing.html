@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page('Check your positions', ~{::main})}">
+<main>
+  <section class="hero">
+    <h1>Your broker's numbers, checked against your own trades.</h1>
+    <p class="lede">Upload the transaction history your broker gives you. basis rebuilds every
+      position from scratch, then tells you exactly where its answer differs from theirs and
+      what most likely caused it.</p>
+
+    <p class="promise">No account. Nothing is written to a database. Your file is held in
+      memory for two hours, and there is a delete button that works immediately.
+      <a th:href="@{/privacy}">The details</a>.</p>
+  </section>
+
+  <div class="alert" th:if="${problem}">
+    <p class="what" th:text="${problem}">Something went wrong.</p>
+    <p class="next" th:text="${nextStep}">Try this instead.</p>
+  </div>
+
+  <div class="alert quiet" th:if="${param.expired}">
+    <p class="what">That session has expired or been deleted.</p>
+    <p class="next">Nothing was kept. Upload the file again to see your breaks.</p>
+  </div>
+
+  <div class="alert good" th:if="${param.deleted}">
+    <p class="what">Deleted.</p>
+    <p class="next">Your statement is gone from memory. There was never a copy anywhere else.</p>
+  </div>
+
+  <section class="card">
+    <form method="post" th:action="@{/check}" enctype="multipart/form-data" id="upload">
+      <div class="field">
+        <label for="history">Transaction history <span class="req">required</span></label>
+        <p class="hint">The export with one row per buy, sell and dividend. At Fidelity:
+          Activity &amp; Orders, then History, then Download.</p>
+        <input type="file" id="history" name="history" accept=".csv,text/csv" required>
+      </div>
+
+      <div class="field">
+        <label for="positions">What your broker says you hold <span class="opt">optional</span></label>
+        <p class="hint">Without this, basis shows what your history says you own. With it, basis
+          can find breaks, which is the part worth doing.</p>
+        <input type="file" id="positions" name="positions" accept=".csv,text/csv">
+      </div>
+
+      <div class="field inline">
+        <label for="broker">Broker</label>
+        <select id="broker" name="broker">
+          <option value="auto" selected>Detect it from the file</option>
+          <option th:each="b : ${brokers}" th:value="${b}" th:text="${b}">fidelity</option>
+        </select>
+        <p class="hint">basis reads the column headings to work this out. Override it if it guesses wrong.</p>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="primary">Check my positions</button>
+        <a class="secondary" th:href="@{/demo}">See a demo instead</a>
+      </div>
+      <p class="tiny">Up to <span th:text="${limits.maxDescription()}">5 MB</span> per file.</p>
+    </form>
+  </section>
+
+  <section class="explain">
+    <h2>Three answers, not two</h2>
+    <div class="cards">
+      <div class="c ok">
+        <h3>Confirmed</h3>
+        <p>The share count is off by exactly 4 to 1, and there really was a 4 for 1 split on that
+          date. basis names it and offers to apply it.</p>
+      </div>
+      <div class="c warn">
+        <h3>Suspected</h3>
+        <p>The ratio is right but nothing confirms a split. That is arithmetic, not evidence, so
+          basis says so and asks you instead of guessing.</p>
+      </div>
+      <div class="c bad">
+        <h3>Ruled out</h3>
+        <p>Split history was checked and contains no such split. The ratio is a coincidence, so
+          this points at missing trades instead.</p>
+      </div>
+    </div>
+  </section>
+</main>
+</html>
