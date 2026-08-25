@@ -14,6 +14,7 @@ import com.basis.domain.LotSelectionMethod;
 import com.basis.domain.Money;
 import com.basis.domain.Price;
 import com.basis.domain.Transaction;
+import com.basis.domain.event.AverageCostElection;
 import com.basis.domain.event.Buy;
 import com.basis.domain.event.CashDividend;
 import com.basis.domain.event.Fee;
@@ -39,20 +40,22 @@ import org.junit.jupiter.api.Test;
  *
  * <p>Replaces the tests that used to assert the unimplemented events threw. There are none
  * left to throw, so what is worth asserting now is the opposite: that nothing in the
- * hierarchy is unreachable, and that a realistic sequence of all ten leaves a ledger whose
- * every transaction balances.
+ * hierarchy is unreachable, and that a realistic sequence of all of them leaves a ledger
+ * whose every transaction balances.
  *
  * <p>The coverage check reads the permitted subclasses off the sealed interface rather than
- * counting a hardcoded number, so adding an eleventh event fails here until someone decides
- * what it does. The compiler already forces the handler's switch to be exhaustive; this
- * forces the test suite to be.
+ * counting a hardcoded number, so a new event fails here until someone decides what it does.
+ * That has already earned itself: adding AverageCostElection broke this test before it broke
+ * anything else. The compiler forces the handler's switch to be exhaustive; this forces the
+ * suite to be.
  */
 class EveryEventIsHandledTest {
 
     private static final Commodity NEWCO = Commodity.equity("NEWCO");
+    private static final Commodity VTSAX = Commodity.mutualFund("VTSAX");
 
     @Test
-    @DisplayName("all ten events run through one ledger and every transaction balances")
+    @DisplayName("every event the hierarchy permits runs through one ledger and balances")
     void everyEventIsHandledAndBalances() {
         Ledger ledger = new Ledger();
         List<LedgerEvent> events = oneOfEach();
@@ -80,10 +83,12 @@ class EveryEventIsHandledTest {
             ledger.record(event);
         }
 
-        // Opening 100000, buy 100 at 10.00 plus 1.00, dividend 40.00 less 6.00 withheld,
-        // sell 50 at 30.00 less 2.00, fee 7.50, and 250.00 transferred out to Schwab.
+        // Opening 100000, buy 100 AAPL at 10.00 plus 1.00, buy 100 VTSAX at 10.00,
+        // dividend 40.00 less 6.00 withheld, sell 50 at 30.00 less 2.00, fee 7.50, and
+        // 250.00 transferred out to Schwab. The corporate actions settle no cash at all.
         Money expected = usd("100000.00")
                 .minus(usd("1001.00"))
+                .minus(usd("1000.00"))
                 .plus(usd("34.00"))
                 .plus(usd("1498.00"))
                 .minus(usd("7.50"))
@@ -106,6 +111,8 @@ class EveryEventIsHandledTest {
                 Commodity.of(USD), qty("100000"), null));
         events.add(new Buy(JAN_15.plusDays(1), broker, "e2", row("e2"), AAPL,
                 qty("100"), Price.of("10.00", USD), usd("1.00")));
+        events.add(new Buy(JAN_15.plusDays(1), broker, "e2b", row("e2b"), VTSAX,
+                qty("100"), Price.of("10.00", USD), usd("0.00")));
         events.add(new CashDividend(JAN_15.plusDays(2), broker, "e3", row("e3"), AAPL,
                 usd("40.00"), usd("6.00")));
         events.add(new StockDividend(JAN_15.plusDays(3), broker, "e4", row("e4"), AAPL, qty("20")));
@@ -119,6 +126,9 @@ class EveryEventIsHandledTest {
                 qty("50"), Price.of("30.00", USD), usd("2.00"), LotSelectionMethod.FIFO, List.of()));
         events.add(new Fee(JAN_15.plusDays(9), broker, "e10", row("e10"),
                 Account.of("Expenses:Fees:Account"), usd("7.50")));
+        // Permitted for a fund and for nothing else, so the fund bought above is what makes
+        // this event reachable at all.
+        events.add(new AverageCostElection(JAN_15.plusDays(10), broker, "e11", row("e11"), VTSAX));
         return events;
     }
 
