@@ -145,6 +145,29 @@ public class BreakRecordRepository {
                 .list();
     }
 
+    /**
+     * Every open break in an account, each with the id that commands take.
+     *
+     * <p>The same query as {@link #findOpen(Account)} with the id selected. Listing breaks
+     * without their ids leaves someone reading output that tells them to run
+     * {@code apply break <id>} and gives them no way to find one.
+     */
+    public List<IdentifiedBreak> findOpenWithIds(Account account) {
+        return db.sql("""
+                SELECT id, as_of_date, account, commodity, commodity_class, break_type,
+                       broker_quantity, computed_quantity,
+                       broker_amount_minor, computed_amount_minor, currency,
+                       probable_cause, cause_code, cause_confident, suggested_action, status
+                  FROM break_record
+                 WHERE status = 'OPEN' AND (account = :account OR account LIKE :prefix)
+                 ORDER BY as_of_date, account, commodity
+                """)
+                .param("account", account.name())
+                .param("prefix", account.name() + ":%")
+                .query((rs, rowNum) -> new IdentifiedBreak(rs.getLong("id"), mapBreak(rs, rowNum)))
+                .list();
+    }
+
     /** One open break, for a command that has to act on exactly the one it was given. */
     public java.util.Optional<BreakRecord> findOpen(long id) {
         return db.sql("""

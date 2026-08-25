@@ -474,13 +474,13 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
 
     private int listBreaks(List<String> rest) {
         Account account = Account.of(requireArg(rest, 0, "breaks <account>"));
-        List<BreakRecord> open = breaks.findOpen(account);
+        List<com.basis.persistence.IdentifiedBreak> open = breaks.findOpenWithIds(account);
         if (open.isEmpty()) {
             out.line("no open breaks in " + account);
             return OK;
         }
-        for (BreakRecord found : open) {
-            printBreak(found);
+        for (com.basis.persistence.IdentifiedBreak found : open) {
+            printBreak(found.id(), found.record());
         }
         out.blank();
         out.line(open.size() + " open break(s)");
@@ -536,16 +536,17 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
             out.line("no breaks: " + snapshot.positions().size() + " reported position(s) agree with the ledger");
             return OK;
         }
-        for (BreakRecord record : found) {
-            printBreak(record);
+        // Recorded before printing, so each break can be shown with the id that
+        // "apply break" and "settle" take. A dry run stores nothing and so has none.
+        boolean dryRun = args.containsOption("dry-run");
+        List<Long> ids = dryRun ? List.of() : breaks.replaceOpen(account, found);
+        for (int index = 0; index < found.size(); index++) {
+            printBreak(index < ids.size() ? ids.get(index) : null, found.get(index));
         }
         out.blank();
-        if (args.containsOption("dry-run")) {
-            out.line(found.size() + " break(s), not recorded (--dry-run)");
-        } else {
-            breaks.replaceOpen(account, found);
-            out.line(found.size() + " break(s) recorded");
-        }
+        out.line(dryRun
+                ? found.size() + " break(s), not recorded (--dry-run)"
+                : found.size() + " break(s) recorded");
         return BREAKS_FOUND;
     }
 
@@ -581,16 +582,31 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
      * {@code BreakRecord.toString}, which runs them together. Printing both and then
      * repeating the action under "next" says the same sentence twice, which is exactly what
      * this did until someone ran it.
+     *
+     * <p>The id leads the line because it is the handle for every other command. Both
+     * {@code apply break} and {@code settle} take one, and until this printed it the only
+     * way to learn a break's id was to query the database, which made the documented
+     * workflow impossible to follow from the output that was supposed to lead you through it.
      */
     private void printBreak(BreakRecord record) {
+        printBreak(null, record);
+    }
+
+    private void printBreak(Long id, BreakRecord record) {
         out.blank();
-        out.line(record.asOf() + "  " + record.account() + "  " + record.commodity() + "  " + record.type());
+        out.line((id == null ? "" : "[" + id + "]  ") + record.asOf() + "  " + record.account()
+                + "  " + record.commodity() + "  " + record.type());
         out.line("  broker " + record.brokerQuantity() + ", computed " + record.computedQuantity());
         out.line("  " + record.cause().code()
                 + (record.cause().confident() ? " (confirmed)" : " (suspected)"));
         out.line("  " + record.cause().explanation());
         if (!record.cause().suggestedAction().isEmpty()) {
             out.line("  next: " + record.cause().suggestedAction());
+        }
+        if (id != null && record.cause().confident() && !record.cause().suggestedAction().isEmpty()) {
+            // The exact command, because "apply the 4 for 1 split" still leaves someone
+            // working out which break they are looking at and what to type.
+            out.line("  run:  basis apply break " + id);
         }
     }
 

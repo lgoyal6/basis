@@ -19,6 +19,8 @@ import com.basis.persistence.ReferenceDataRepository;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -110,6 +112,52 @@ class ClosingTheLoopTest {
 
     private String printed() {
         return stdout.toString(StandardCharsets.UTF_8);
+    }
+
+    @Test
+    @DisplayName("the break id is discoverable from the output, with no database access")
+    void theLoopClosesFromTheOutputAlone(@TempDir Path dir) throws Exception {
+        // theWholeLoop below reads the id straight out of break_record with SQL, which is
+        // what hid this: every command that acts on a break takes an id, and nothing that
+        // printed a break ever showed one. Somebody following the output was told to run
+        // "apply break <id>" with no way to find one short of opening a psql session.
+        givenAPurchaseOf10Apple();
+        referenceData.cacheSplit("AAPL", SPLIT_DATE, 4, 1, "test");
+        Path positions = write(dir, "AAPL,40\n");
+
+        run("reconcile", IBKR.name(), positions.toString(), "--as-of=" + AS_OF);
+        Matcher fromReconcile = Pattern.compile("basis apply break (\\d+)").matcher(printed());
+        assertThat(fromReconcile.find())
+                .as("reconcile should print the exact command, not just describe it")
+                .isTrue();
+        String id = fromReconcile.group(1);
+
+        newCli();
+        assertThat(run("breaks", IBKR.name())).isEqualTo(BasisCli.BREAKS_FOUND);
+        assertThat(printed())
+                .as("listing breaks has to show the same handle")
+                .contains("[" + id + "]");
+
+        newCli();
+        assertThat(run("apply", "break", id))
+                .as("the command the output gave actually works")
+                .isEqualTo(BasisCli.OK);
+    }
+
+    @Test
+    @DisplayName("a dry run prints no break id, because it stored no break to have one")
+    void aDryRunHasNoIdToOffer(@TempDir Path dir) throws Exception {
+        givenAPurchaseOf10Apple();
+        referenceData.cacheSplit("AAPL", SPLIT_DATE, 4, 1, "test");
+        Path positions = write(dir, "AAPL,40\n");
+
+        run("reconcile", IBKR.name(), positions.toString(), "--as-of=" + AS_OF, "--dry-run");
+
+        assertThat(printed())
+                .as("offering a command with an id nothing assigned would be a lie")
+                .doesNotContain("basis apply break")
+                .contains("not recorded");
+        assertThat(breaks.countOpen()).isZero();
     }
 
     @Test
