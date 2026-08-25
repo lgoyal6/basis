@@ -1460,3 +1460,43 @@ derived state missing the newest postings, and the next rebuild corrects it, so 
 temporary and self healing rather than a wrong number that persists. Locking it properly means a
 global lock, which is a different decision and is not needed until something other than one
 person runs this.
+
+## 33. Measuring crash safety instead of arguing for it
+
+The crash marker had a handful of tests asserting its mechanism: an open batch has a null
+`committed_at`, startup finds it, rollback discards its transactions. Necessary, and a small
+number of hand chosen states.
+
+`InterruptedImportHarnessTest` asks a harder question. It stops the real write loop after an
+arbitrary number of appends, thousands of times, with the count drawn from a seeded random, and
+runs recovery after each one. The interruption goes through a production seam,
+`ImportInterruption`, whose default implementation does nothing. That is deliberate: a harness
+that can only interrupt an import it built itself proves something about the harness.
+
+**Result of a 3,000 iteration run: 3,000 interruptions, 0 completed, 0 half applied batches.**
+Every batch either committed whole or was rolled back whole, and no posting was left without a
+committed transaction above it.
+
+### 33.1 Two wrong predictions, recorded because they were wrong
+
+The first version made four separate `recordAsserted` calls per iteration and had to be killed
+after ten minutes with no result. The diagnosis was that each call hydrates the ledger by
+reading the whole posting table, so the cost must grow as the table fills. Restructuring to one
+import of four rows per iteration fixed the runtime, which appeared to confirm the diagnosis.
+
+It did not. A later run instrumented the cost by tenths of the run and the curve is flat: 251,
+260, 258, 260, 256, 259, 249, 247, 244, 246 ms. Cost does not grow, and the reason is
+straightforward once measured rather than assumed: every batch in this harness is rolled back,
+so the posting table never grows in the first place. The real fix was doing a quarter as many
+imports, not avoiding a quadratic that was never there.
+
+The second wrong prediction followed from the first. A 15,000 iteration run was estimated at six
+minutes by multiplying the 23ms average measured at 2,000 iterations. That run had to be killed
+too. Part of the cause was a second test computing its round count as `ITERATIONS / 20`, so
+raising the harness size silently raised two workloads; that is now a constant. The rest is that
+per iteration cost on this machine varies between 23ms and 253ms across runs of the same code,
+which makes any wall clock prediction from a single average worthless.
+
+Both are written down because the flat curve is the useful artifact. Anyone tempted to optimise
+the hydration path for import throughput should know that this harness is not evidence for it,
+and that the number to beat has not been measured yet.
