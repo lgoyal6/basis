@@ -1093,3 +1093,110 @@ response for a symbol with decades of history is under a kilobyte.
 
 This closes the last open question in docs/FEASIBILITY.md, which has carried a blank since
 week 0.
+
+## 29. Interest, and the vocabulary a profile claims without evidence
+
+Two separate questions arrived together, and they deserve separate answers because only one
+of them is a design decision.
+
+### 29.1 Where interest income goes
+
+Fidelity writes `INTEREST EARNED` for interest credited to a balance. The importer stopped on
+it, correctly, because nothing in the ledger could represent it. The options:
+
+1. **Map it to `CashDividend`.** Cheapest: no new event, no new handler. Rejected on two
+   counts. `CashDividend` requires a commodity and refuses a currency, so an interest row
+   with a blank symbol column cannot be built at all without warping the event's validation.
+   And even if it could, the income would land in `Income:Dividends:<symbol>`, which is a
+   heading it does not belong under. Someone asking what this account paid in dividends would
+   get an answer containing interest, and would have no way to see that from the total.
+2. **Map it to `Transfer` from an income account.** Works mechanically, since `Income:Interest`
+   is a valid account name and a transfer moves value between two accounts. Rejected because
+   it says the wrong thing: a transfer is value moving, and interest is value appearing. The
+   narration and the account structure would both have to lie about which one happened.
+3. **Add an `InterestEarned` event.** Chosen.
+
+Chosen because the gap is real and is not Fidelity's. The ledger could book income from a
+security (`CashDividend`) and could book a charge (`Fee`), and had no way to book income that
+comes from no security: a cash sweep, a bond coupon, a bare balance. Every broker pays some
+form of it. That is a hole in the model, not a quirk of one export, and the honest fix is an
+event rather than a redirection of an existing one to somewhere it does not fit.
+
+It carries no commodity, because the thing that earned it is a cash balance rather than a
+holding. It carries withholding separately, for the same reason `CashDividend` does: the
+broker reports it on its own line, and a reconciliation that cannot see the withholding cannot
+explain why the cash that arrived is smaller than the interest that was earned.
+
+Income goes to `Income:Interest`, deliberately not under `Income:Dividends`. The two are taxed
+differently, and putting them in one place would make the wrong number the easy one to read.
+
+One consequence worth naming: a cash sweep fund such as SPAXX pays out as a **dividend on its
+own symbol**, and the real export confirms Fidelity reports it as `DIVIDEND RECEIVED`. That is
+a dividend and stays one. `INTEREST` is for the rows that name no security at all. The
+distinction is the broker's, not ours, and following it is what keeps both totals right.
+
+Interest *charged* is not negative interest. `InterestEarned` refuses a non-positive amount and
+says so; margin interest maps to `FEE`, which is what it is.
+
+### 29.2 Phrases claimed without a statement to prove them
+
+The Fidelity profile now lists action phrases that the one real export this project has seen
+never produced: `INTEREST EARNED`, `ACCOUNT FEE`, `FEDERAL TAX WITHHELD`, `ROLLOVER
+CONTRIBUTION` and others. They come from Fidelity's documented wording rather than from
+observed data.
+
+This is a change in kind from section 27, where every correction came from a file that
+actually existed, and it is worth being uncomfortable about. The justification is asymmetry:
+being wrong about one of these costs one edit to a properties file, and being silent about
+them costs a stopped import on a phrase that was always going to be a config line. The risk
+is not symmetric, so the guess is worth making.
+
+What keeps it honest:
+
+- The profile header says which phrases were seen and which were researched. A reader can tell
+  the difference without going to git.
+- Every claimed phrase has a test asserting it classifies to what the file says it does. An
+  untested claim about a broker's vocabulary is a claim that stops being true the next time
+  somebody edits the file, and nobody finds out.
+- No phrase was added to `action.IGNORE`. Guessing that a row is *meaningless* is a different
+  and much worse bet than guessing what it means, because the failure is silent.
+
+### 29.3 What is still deliberately unmapped
+
+Corporate actions. `MERGER`, `NAME CHANGE`, `SPLIT`, `REVERSE SPLIT`, `DISTRIBUTION`,
+`SPIN OFF`, `CASH IN LIEU`, `EXCHANGE`, `CONVERSION` are all absent from the profile, and each
+one stops an import that contains it.
+
+That is the intended behaviour and the tests pin it. Every one of those restates a cost basis,
+and the statement row records only that the event happened, never at what ratio or against
+which lots. There is no honest reading of `MERGER SOME CORP (ABC)` that produces the right
+postings. Mapping them to anything, including `IGNORE`, would let the import finish and leave
+every later sale of that holding computing a gain from a basis nobody ever established.
+
+So the profile carries a comment saying exactly that, in the file where somebody frustrated by
+a stopped import would go looking: adding these phrases to make the import proceed is the one
+edit to that file that loses money. The stop is the feature.
+
+A comment in a config file is not enough on its own, though, and running the binary showed why.
+The generic message for an unrecognised action ends with "add the phrase to the Fidelity profile
+in config/brokers", which is correct advice for almost every row and is precisely the harmful
+instruction for a corporate action. Somebody hitting `MERGER` would be told by the tool to do
+the thing the docs call the expensive mistake.
+
+So the message is now conditional. When the action reads like a corporate action, it says the
+row does not carry the terms, names the command that applies it properly, and says outright not
+to add the phrase to the profile. A rename is separated from the rest, because it is the one
+that moves no value and restates no basis: it points at `config/symbol-changes.csv` and skips
+the warning that does not apply to it. All of it is pinned by tests, because an error message is
+exactly the kind of thing that stops being true without anybody noticing.
+
+### 29.4 A fee is not a commission
+
+Found the same way, by reading what the binary actually wrote. A statement row mapping to `FEE`
+was booked to `Expenses:Commissions`. That was defensible while the only such rows were trading
+charges, and adding `MARGIN INTEREST` and `ACCOUNT FEE` to the profile made it wrong: the answer
+to "what did trading cost me" would have included charges no trade caused.
+
+Standalone charges now go to `Expenses:Fees`. `Expenses:Commissions` keeps only what `Buy` and
+`Sell` put there, which is the commission on an actual trade. This is the same argument as 29.1,
+applied two lines away from it, and leaving it inconsistent was not an option worth defending.
