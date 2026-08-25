@@ -1,143 +1,433 @@
-/* One stylesheet, served from the jar. Nothing is loaded from a CDN: a page that asks a
-   stranger to upload their brokerage history should not also be asking a third party to
-   watch them do it. */
-:root{
-  --bg:#0b0e14; --panel:#11151d; --line:#1e2530; --ink:#e3e8ef; --dim:#8b96a8;
-  --green:#5ddb7f; --amber:#e3b341; --blue:#6cb6ff; --red:#f47067; --white:#f7fafc;
-  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+/* basis: a statement, not a landing page.
+ *
+ * The design brief is the domain. This tool exists to be believed about money, and the
+ * things that make financial figures readable are old and specific: figures set in a
+ * monospace with tabular width so columns line up and a wrong digit is visible, numbers
+ * right aligned against the place they will be compared to, hairline rules instead of boxes,
+ * and prose in a serif because that is what documents about money are set in.
+ *
+ * Notably absent: cards with coloured headings, a gradient, three accent colours, generous
+ * whitespace. A dense page with one accent reads as a document. The same content in floating
+ * cards reads as marketing, and a reconciliation tool that reads as marketing is asking to be
+ * distrusted.
+ *
+ * Everything is a system font. Nothing is fetched. A page asking a stranger to upload their
+ * trading history should not also be asking a font CDN to watch them do it, and the system
+ * serif stacks below are good enough that the download would buy very little.
+ */
+
+/* Cream paper, ink, and almost nothing else.
+ *
+ * Colour is used only where it carries meaning, and even then it is a variant of ink rather
+ * than a signal: a muted sage for a finding basis can prove, a clay for one it only suspects,
+ * a brick for a refusal. Desaturated on purpose. A page about somebody's money should look
+ * like a document that was set, not like a dashboard that was themed.
+ *
+ * There is no dark variant. Committing to one look is a design decision; offering two, one of
+ * which nobody chose, is an absence of one. */
+:root {
+  --paper: #f8f6f1;
+  --paper-sunk: #f1eee5;
+  --ink: #1c1b18;
+  --ink-soft: #494640;
+  --ink-muted: #7d7972;
+  --rule: #ddd8cc;
+  --rule-strong: #c3bdae;
+
+  /* Ink variants, not signal colours. */
+  --confirmed: #3d5a45;
+  --suspected: #7a6636;
+  --refused: #8a4a42;
+
+  --serif: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, "Times New Roman", serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 }
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.62;
-     font-size:16px;-webkit-font-smoothing:antialiased}
-.wrap{max-width:820px;margin:0 auto;padding:0 20px}
-a{color:var(--blue)}
-h1,h2,h3{line-height:1.22;letter-spacing:-.02em}
-code{font-family:var(--mono);font-size:.88em}
 
-.top{border-bottom:1px solid var(--line);padding:14px 0;margin-bottom:34px}
-.top .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px}
-.brand{font-weight:700;font-size:19px;text-decoration:none;color:var(--white)}
-.brand span{color:var(--green)}
-.top nav{display:flex;gap:16px;font-size:14px}
-.top nav a{color:var(--dim);text-decoration:none}
-.top nav a:hover{color:var(--ink)}
+* { box-sizing: border-box; }
 
-.hero h1{font-size:clamp(28px,4.6vw,40px);margin:0 0 12px}
-.lede{color:var(--dim);max-width:62ch;margin:0 0 14px}
-.promise{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--green);
-         border-radius:7px;padding:12px 15px;font-size:14.5px;color:var(--ink);max-width:62ch}
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.58;
+  -webkit-font-smoothing: antialiased;
+  /* Every figure on this page lines up with every other figure. */
+  font-variant-numeric: tabular-nums;
+}
 
-.alert{border-radius:8px;padding:14px 16px;margin:22px 0;border:1px solid var(--red);
-       background:rgba(244,112,103,.08)}
-.alert .what{margin:0 0 6px;font-weight:600}
-.alert .next{margin:0;color:var(--dim);font-size:14.5px}
-.alert.quiet{border-color:var(--line);background:var(--panel)}
-.alert.good{border-color:var(--green);background:rgba(93,219,127,.08)}
+/* Left anchored, not centred. A narrow column floating between two empty gutters is the
+ * house style of a generated page, and it wastes the width that tables and figures want.
+ *
+ * The measure is controlled where it matters instead: prose carries its own max-width in ch,
+ * so lines stay readable while the page itself uses the screen. Capped at 90rem so a very
+ * wide monitor does not stretch a rule across a metre of glass. */
+.wrap {
+  max-width: 90rem;
+  margin: 0;
+  padding: 0 clamp(1.1rem, 3.5vw, 2.75rem);
+}
 
-.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:22px;
-      margin:26px 0}
-.field{margin-bottom:22px}
-.field label{display:block;font-weight:620;margin-bottom:4px}
-.req,.opt{font-size:11px;text-transform:uppercase;letter-spacing:.09em;padding:2px 6px;
-          border-radius:4px;margin-left:6px;vertical-align:1px}
-.req{background:rgba(108,182,255,.16);color:var(--blue)}
-.opt{background:rgba(139,150,168,.16);color:var(--dim)}
-.hint{margin:0 0 9px;color:var(--dim);font-size:14px}
-input[type=file]{width:100%;padding:11px;background:#05070b;border:1px dashed #2b3543;
-                 border-radius:7px;color:var(--dim);font-size:14px}
-input[type=file]:hover{border-color:#3d4a5c}
-select{background:#05070b;border:1px solid var(--line);color:var(--ink);border-radius:6px;
-       padding:8px 10px;font:inherit;font-size:14.5px}
-.actions{display:flex;flex-wrap:wrap;gap:11px;align-items:center;margin-top:8px}
-button,.secondary{font:inherit;font-size:15px;font-weight:600;border-radius:7px;cursor:pointer}
-button.primary{background:var(--green);color:#06240f;border:1px solid var(--green);padding:11px 20px}
-.secondary{padding:11px 18px;border:1px solid var(--line);background:#161b25;color:var(--ink);
-           text-decoration:none}
-button.danger{background:transparent;border:1px solid var(--red);color:var(--red);padding:9px 16px}
-.tiny{font-size:12.5px;color:var(--dim);margin:12px 0 0}
+a { color: var(--ink); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:hover { color: var(--refused); }
 
-.explain{margin:44px 0}
-.cards{display:grid;gap:13px;grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
-.c{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:16px}
-.c h3{font-size:14px;font-family:var(--mono);margin:0 0 7px}
-.c p{margin:0;font-size:14px;color:var(--dim)}
-.c.ok h3{color:var(--green)} .c.warn h3{color:var(--amber)} .c.bad h3{color:var(--red)}
+h1, h2, h3 { font-weight: 600; line-height: 1.22; letter-spacing: -0.01em; margin: 0; }
 
-.summary h1{font-size:clamp(26px,4.2vw,36px);margin:0 0 10px}
-.meta{font-family:var(--mono);font-size:12.5px;color:var(--dim);margin:14px 0}
-.badge{background:rgba(227,179,65,.16);color:var(--amber);padding:2px 7px;border-radius:4px;
-       font-size:11px;text-transform:uppercase;letter-spacing:.08em}
-.stages{margin:16px 0 0;font-size:14px}
-.stages summary{color:var(--dim);cursor:pointer}
-.stages ol{margin:11px 0 0;padding-left:20px;color:var(--dim)}
-.stages li{margin-bottom:5px}
-.stages b{color:var(--ink);font-weight:600}
-.stages i{font-family:var(--mono);font-size:12px;font-style:normal;opacity:.75;margin-left:6px}
+/* Section labels, set the way a statement labels its sections. */
+h2 {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 1.1rem;
+}
 
-.questions{margin:38px 0}
-.question{background:var(--panel);border:1px solid var(--amber);border-radius:10px;padding:19px;
-          margin-bottom:15px}
-.question .prompt{margin:0 0 15px;font-size:15.5px}
-.options{display:grid;gap:10px}
-.options form{margin:0}
-.options button{width:100%;text-align:left;padding:13px 15px;border-radius:8px;
-                border:1px solid var(--line);background:#161b25;color:var(--ink)}
-.options button.choice{border-color:var(--amber)}
-.options button:hover{border-color:var(--blue)}
-.options button b{display:block;font-size:15px;margin-bottom:4px}
-.options button span{display:block;font-weight:400;font-size:13.5px;color:var(--dim);line-height:1.5}
+code, .mono { font-family: var(--mono); font-size: 0.86em; }
 
-.breaks-head{display:flex;align-items:baseline;justify-content:space-between;gap:14px}
-.export{font-size:14px}
-.break{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:17px;
-        margin-bottom:13px;border-left:3px solid var(--dim)}
-.break.confirmed{border-left-color:var(--green)}
-.break.suspected{border-left-color:var(--amber)}
-.bhead{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:9px}
-.sym{font-family:var(--mono);font-weight:700;font-size:16px;color:var(--white)}
-.type{font-family:var(--mono);font-size:11.5px;color:var(--dim)}
-.conf{font-size:11px;text-transform:uppercase;letter-spacing:.08em;padding:2px 7px;border-radius:4px}
-.confirmed .conf{background:rgba(93,219,127,.16);color:var(--green)}
-.suspected .conf{background:rgba(227,179,65,.16);color:var(--amber)}
-.numbers{margin:0 0 8px;font-size:15px}
-.numbers b{font-family:var(--mono)}
-.cause{margin:0 0 7px}
-.why{margin:0 0 8px;color:var(--dim);font-size:14.5px}
-.do{margin:0;font-size:14.5px;color:var(--blue)}
+/* ---- masthead ------------------------------------------------------------ */
 
-table{width:100%;border-collapse:collapse;margin-top:12px;font-size:14.5px}
-th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--line)}
-th{color:var(--dim);font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.07em}
-td.num,th.num{text-align:right;font-family:var(--mono)}
+.top {
+  border-bottom: 1px solid var(--rule-strong);
+  padding: 0.9rem 0;
+  margin-bottom: 1.7rem;
+  background: var(--paper);
+}
+.top .wrap { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.brand {
+  font-family: var(--serif);
+  font-size: 1.32rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  text-decoration: none;
+}
+.brand span { display: none; }              /* the decorative full stop, retired */
+.top nav { display: flex; gap: 1.1rem; font-family: var(--sans); font-size: 0.8rem; }
+.top nav a { color: var(--ink-muted); text-decoration: none; }
+.top nav a:hover { color: var(--ink); text-decoration: underline; }
 
-.cleanup{margin:44px 0 20px;padding-top:22px;border-top:1px solid var(--line)}
-.prose{max-width:66ch}
-.prose h1{font-size:clamp(26px,4.2vw,34px);margin:0 0 18px}
-.prose h2{font-size:19px;margin:32px 0 8px}
-.prose p{color:var(--dim)}
-footer{margin:52px 0 60px;padding-top:20px;border-top:1px solid var(--line)}
-footer p{color:var(--dim);font-size:13px;max-width:66ch}
-@media(max-width:560px){.top nav{font-size:13px;gap:11px}}
+/* ---- opening ------------------------------------------------------------- */
 
-/* Drag and drop. The native file input stays in the DOM and stays the thing that receives
-   the file, so a drop, a click and a keyboard tab all end up in the same place and the form
-   still submits with JavaScript off. */
-.drop{display:block;position:relative;padding:18px;background:#05070b;border:1px dashed #2b3543;
-      border-radius:8px;cursor:pointer;transition:border-color .12s,background .12s}
-.drop:hover,.drop:focus-within{border-color:var(--blue);background:#070b12}
-.drop input[type=file]{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;
-                       border:0;padding:0}
-.drop-hint{display:block;color:var(--dim);font-size:14px;text-align:center;pointer-events:none}
-.drop input[type=file]:focus-visible + .drop-hint{color:var(--blue)}
+.hero { margin-bottom: 1.5rem; }
+.hero h1 { font-size: clamp(1.6rem, 3.6vw, 2.15rem); max-width: 30ch; margin-bottom: 0.6rem; }
+.lede { color: var(--ink-soft); max-width: 60ch; margin: 0 0 0.9rem; }
 
-/* Shown only while htmx has a request in flight. Not a spinner on its own: it names the
-   stages, because on a long history the useful information is what is happening. */
-.working{display:none;align-items:flex-start;gap:11px;margin-top:16px;padding:13px 15px;
-         background:#05070b;border:1px solid var(--line);border-left:3px solid var(--blue);
-         border-radius:7px;font-size:14px;color:var(--dim)}
-.working.htmx-request,.working.busy{display:flex}
-.stages-live b{color:var(--ink)}
-.spin{flex:0 0 auto;width:14px;height:14px;margin-top:3px;border-radius:50%;
-      border:2px solid #2b3543;border-top-color:var(--blue);animation:spin .7s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
+/* The privacy claim. A left rule, the way a document marks an aside. */
+.promise {
+  font-family: var(--sans);
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  max-width: 58ch;
+  margin: 1.2rem 0 0;
+  padding-left: 0.9rem;
+  border-left: 2px solid var(--rule-strong);
+}
+
+/* ---- notices ------------------------------------------------------------- */
+
+.alert {
+  margin: 1.4rem 0;
+  padding: 0.7rem 0 0.75rem 0.9rem;
+  border-left: 2px solid var(--refused);
+}
+.alert .what { font-family: var(--sans); font-size: 0.92rem; font-weight: 600; margin: 0 0 0.25rem; }
+.alert .next { font-family: var(--sans); font-size: 0.86rem; color: var(--ink-soft); margin: 0; }
+.alert.quiet { border-left-color: var(--rule-strong); }
+.alert.good { border-left-color: var(--confirmed); }
+
+/* ---- the form ------------------------------------------------------------ */
+
+.card {
+  max-width: 36rem;                          /* a form is narrow; the page around it is not */
+  margin: 1.6rem 0;
+  padding: 1.2rem 0 0;
+  border-top: 2px solid var(--ink);          /* a ruled-off section, not a floating box */
+}
+.field { margin-bottom: 1.5rem; }
+.field label {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  font-weight: 620;
+  margin-bottom: 0.15rem;
+}
+.req, .opt {
+  font-family: var(--sans);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin-left: 0.45rem;
+}
+.req { color: var(--ink-soft); }
+.hint {
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  color: var(--ink-muted);
+  margin: 0 0 0.6rem;
+  max-width: 56ch;
+}
+
+.drop {
+  display: block;
+  position: relative;
+  padding: 0.85rem 1rem;
+  background: var(--paper-sunk);
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.drop:hover, .drop:focus-within { border-color: var(--ink); }
+.drop input[type=file] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.drop-hint {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+  pointer-events: none;
+}
+
+.field.inline select {
+  font-family: var(--sans);
+  font-size: 0.88rem;
+  padding: 0.35rem 0.5rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+}
+
+.actions { display: flex; flex-wrap: wrap; gap: 0.7rem; align-items: center; margin-top: 0.4rem; }
+button, .secondary {
+  font-family: var(--sans);
+  font-size: 0.88rem;
+  font-weight: 600;
+  border-radius: 2px;
+  cursor: pointer;
+}
+button.primary {
+  padding: 0.55rem 1.1rem;
+  color: var(--paper);
+  background: var(--ink);
+  border: 1px solid var(--ink);
+}
+button.primary:hover { background: var(--ink-soft); border-color: var(--ink-soft); }
+button.primary:disabled { opacity: 0.45; cursor: default; }
+.secondary {
+  padding: 0.55rem 1rem;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--rule-strong);
+  text-decoration: none;
+}
+.secondary:hover { border-color: var(--ink); }
+button.danger {
+  padding: 0.45rem 0.9rem;
+  color: var(--refused);
+  background: transparent;
+  border: 1px solid var(--refused);
+}
+button.danger:hover { color: var(--paper); background: var(--refused); }
+.tiny { font-family: var(--sans); font-size: 0.78rem; color: var(--ink-muted); margin: 0.8rem 0 0; }
+
+.working {
+  display: none;
+  align-items: flex-start;
+  gap: 0.65rem;
+  margin-top: 1rem;
+  padding: 0.7rem 0.9rem;
+  background: var(--paper-sunk);
+  border-left: 2px solid var(--rule-strong);
+  font-family: var(--sans);
+  font-size: 0.84rem;
+  color: var(--ink-soft);
+}
+.working.htmx-request, .working.busy { display: flex; }
+.stages-live b { color: var(--ink); }
+.spin {
+  flex: 0 0 auto;
+  width: 0.7rem; height: 0.7rem;
+  margin-top: 0.3rem;
+  border: 2px solid var(--rule-strong);
+  border-top-color: var(--ink-soft);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- the three verdicts, as a definition list rather than three cards ----- */
+
+.explain { margin: 2rem 0; max-width: 60rem; }
+.cards { display: block; }
+.c {
+  display: grid;
+  grid-template-columns: 11rem 1fr;
+  gap: 0 1.4rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+.c:last-child { border-bottom: none; }
+.c h3 {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  padding-top: 0.15rem;
+}
+.c p { margin: 0; font-size: 0.94rem; color: var(--ink-soft); }
+.c.ok h3 { color: var(--confirmed); }
+.c.warn h3 { color: var(--suspected); }
+.c.bad h3 { color: var(--refused); }
+@media (max-width: 34rem) { .c { grid-template-columns: 1fr; gap: 0.2rem; } }
+
+/* ---- results ------------------------------------------------------------- */
+
+.summary { margin-bottom: 1.7rem; }
+.summary h1 { font-size: clamp(1.5rem, 3.4vw, 2rem); margin-bottom: 0.5rem; }
+.meta {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--ink-muted);
+  margin: 0.9rem 0 0;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--rule);
+}
+.badge {
+  font-family: var(--sans);
+  font-size: 0.66rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--suspected);
+  margin-left: 0.5rem;
+}
+.stages { margin-top: 0.9rem; font-family: var(--sans); font-size: 0.83rem; }
+.stages summary { color: var(--ink-muted); cursor: pointer; }
+.stages ol { margin: 0.7rem 0 0; padding-left: 1.2rem; color: var(--ink-soft); }
+.stages li { margin-bottom: 0.25rem; }
+.stages b { color: var(--ink); font-weight: 620; }
+.stages i { font-family: var(--mono); font-size: 0.76rem; font-style: normal; color: var(--ink-muted); margin-left: 0.4rem; }
+
+/* A decision to make. Marked with a rule, not a coloured panel. */
+.questions { margin: 1.9rem 0; max-width: 60rem; }
+.question { padding: 1rem 0 1.2rem; border-top: 1px solid var(--rule-strong); }
+.question .prompt { margin: 0 0 1rem; font-size: 1rem; max-width: 62ch; }
+.options { display: grid; gap: 0.45rem; max-width: 46rem; }
+.options form { margin: 0; }
+.options button {
+  width: 100%;
+  text-align: left;
+  padding: 0.7rem 0.9rem;
+  color: var(--ink);
+  background: var(--paper-sunk);
+  border: 1px solid var(--rule-strong);
+  font-weight: 400;
+}
+.options button:hover { border-color: var(--ink); }
+.options button.choice { border-left: 3px solid var(--suspected); }
+.options button b {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  font-weight: 640;
+  margin-bottom: 0.2rem;
+}
+.options button span {
+  display: block;
+  font-family: var(--serif);
+  font-size: 0.89rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.breaks { margin: 1.9rem 0; }
+.breaks-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.breaks-head h2 { flex: 1; }
+.export { font-family: var(--sans); font-size: 0.8rem; white-space: nowrap; padding-bottom: 0.4rem; }
+
+/* One break, set as a ledger entry: identifier, figures, then the reasoning. */
+.break {
+  padding: 0.8rem 0 0.85rem 0.85rem;
+  border-bottom: 1px solid var(--rule);
+  border-left: 2px solid transparent;
+}
+.break:first-of-type { border-top: 1px solid var(--rule); }
+.break.confirmed { border-left-color: var(--confirmed); }
+.break.suspected { border-left-color: var(--suspected); }
+.bhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.6rem; margin-bottom: 0.3rem; }
+.sym { font-family: var(--mono); font-size: 0.98rem; font-weight: 650; }
+.type { font-family: var(--mono); font-size: 0.72rem; color: var(--ink-muted); }
+.conf {
+  font-family: var(--sans);
+  font-size: 0.66rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  margin-left: auto;
+}
+.confirmed .conf { color: var(--confirmed); }
+.suspected .conf { color: var(--suspected); }
+.numbers { font-family: var(--mono); font-size: 0.85rem; color: var(--ink-soft); margin: 0 0 0.45rem; }
+.numbers b { color: var(--ink); font-weight: 650; }
+.cause { display: none; }                   /* the code is already in .type */
+.why { margin: 0 0 0.35rem; font-size: 0.95rem; color: var(--ink-soft); max-width: 74ch; }
+.do { margin: 0; font-size: 0.92rem; max-width: 74ch; }
+.do::before { content: "\2192\00a0"; color: var(--ink-muted); }
+
+/* ---- figures ------------------------------------------------------------- */
+
+.positions { margin: 1.9rem 0; max-width: 52rem; }
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th, td { padding: 0.42rem 0.7rem; border-bottom: 1px solid var(--rule); }
+th {
+  font-family: var(--sans);
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  text-align: left;
+  border-bottom: 1px solid var(--rule-strong);
+}
+th:first-child, td:first-child { padding-left: 0; }
+th:last-child, td:last-child { padding-right: 0; }
+td { font-family: var(--mono); font-size: 0.85rem; }
+/* Figures right aligned, so the decimal points stack. */
+td.num, th.num { text-align: right; }
+tbody tr:hover td { background: var(--paper-sunk); }
+
+.cleanup { margin: 2.2rem 0 1rem; padding-top: 1.2rem; border-top: 2px solid var(--ink); }
+
+/* ---- prose --------------------------------------------------------------- */
+
+.prose { max-width: 62ch; }
+.prose h1 { font-size: clamp(1.5rem, 3.4vw, 1.95rem); margin-bottom: 1rem; }
+.prose h2 { margin-top: 2rem; }
+.prose p { color: var(--ink-soft); }
+
+footer {
+  margin: 2.6rem 0 2rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--rule);
+}
+footer p {
+  font-family: var(--sans);
+  font-size: 0.79rem;
+  color: var(--ink-muted);
+  max-width: 62ch;
+  margin: 0;
+}
+
+@media (max-width: 34rem) {
+  body { font-size: 16px; }
+  .top nav { gap: 0.8rem; font-size: 0.76rem; }
+  .conf { margin-left: 0; }
+}
