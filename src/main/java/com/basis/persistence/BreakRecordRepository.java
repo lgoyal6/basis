@@ -81,6 +81,30 @@ public class BreakRecordRepository {
     }
 
     /**
+     * Replaces the open breaks for an account with the ones a reconciliation just found.
+     *
+     * <p>A break is the current state of a disagreement, not an entry in a log. Reconciling
+     * weekly against the same unfixed split should leave one break, not a growing pile of
+     * identical ones, and a holding that has since come into agreement should stop having a
+     * break at all rather than keeping a stale one open forever.
+     *
+     * <p>Only open breaks are cleared. Anything a person has already accepted, rejected or
+     * resolved is their judgement and survives, which is the reason break_record is not
+     * derived state.
+     */
+    @Transactional
+    public List<Long> replaceOpen(Account account, List<BreakRecord> found) {
+        db.sql("""
+                DELETE FROM break_record
+                 WHERE status = 'OPEN' AND (account = :account OR account LIKE :prefix)
+                """)
+                .param("account", account.name())
+                .param("prefix", account.name() + ":%")
+                .update();
+        return recordAll(found);
+    }
+
+    /**
      * Settles a break with a human's judgement.
      *
      * <p>The schema will not let a break leave OPEN without a resolution timestamp, which
@@ -119,6 +143,21 @@ public class BreakRecordRepository {
                 .param("prefix", account.name() + ":%")
                 .query(BreakRecordRepository::mapBreak)
                 .list();
+    }
+
+    /** One open break, for a command that has to act on exactly the one it was given. */
+    public java.util.Optional<BreakRecord> findOpen(long id) {
+        return db.sql("""
+                SELECT as_of_date, account, commodity, commodity_class, break_type,
+                       broker_quantity, computed_quantity,
+                       broker_amount_minor, computed_amount_minor, currency,
+                       probable_cause, cause_code, cause_confident, suggested_action, status
+                  FROM break_record
+                 WHERE id = :id AND status = 'OPEN'
+                """)
+                .param("id", id)
+                .query(BreakRecordRepository::mapBreak)
+                .optional();
     }
 
     public int countOpen() {
