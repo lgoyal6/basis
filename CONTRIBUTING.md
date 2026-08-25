@@ -50,6 +50,12 @@ marked not confident and says why. "Checked and found nothing", "never checked" 
 "could not check" are three different answers and the code keeps them apart. Any change
 that turns one of those into a silent default is the wrong change.
 
+**One writer per account.** Recording an event hydrates the whole ledger, decides which lots a
+sale consumes from that snapshot, and appends the result, so two concurrent writers both pick
+the same lots and both succeed. No constraint catches it, because lot quantities are derived
+state rather than a column. A Postgres advisory lock is taken before hydration, not before the
+writes. If you add a new write path, it goes through `AccountLock` too.
+
 **Corporate actions are asserted, not parsed.** They are entered with `apply` or come
 from reference data. A transaction export reports them inconsistently and often not at
 all, and a split read wrongly restates every lot in a position.
