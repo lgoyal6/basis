@@ -139,15 +139,18 @@ public final class StatementRowMapper {
      * sentence because the remedy is not always a command: a rename is a config entry, and a
      * merger needs somebody to read the terms before anything can be applied at all.
      */
-    private static final Map<String, String> CORPORATE_ACTIONS = new LinkedHashMap<>();
+    // Package private so a test can hold every command named here against the list the CLI
+    // actually dispatches on. Advice that names a command nobody can run is worse than none.
+    static final Map<String, String> CORPORATE_ACTIONS = new LinkedHashMap<>();
 
     static {
         CORPORATE_ACTIONS.put("REVERSE SPLIT", "Apply it with 'basis apply reverse-split', giving the"
                 + " ratio from the broker's notice.");
-        CORPORATE_ACTIONS.put("CASH IN LIEU", "Apply the split it came from first, then book the"
-                + " fractional sale with 'basis apply cash-in-lieu'. It is a real disposal and is"
-                + " usually the one taxable event in a corporate action that a statement does not"
-                + " label as one.");
+        CORPORATE_ACTIONS.put("CASH IN LIEU", "It belongs to the reverse split that created the"
+                + " fraction, and is booked with it: 'basis apply reverse-split <account> <symbol>"
+                + " <new:old> --on DATE --cash-in-lieu AMOUNT'. It is a real disposal and usually"
+                + " the one taxable event in a corporate action that a statement never labels as"
+                + " one.");
         CORPORATE_ACTIONS.put("STOCK DIVIDEND", "Apply it with 'basis apply stock-dividend'.");
         CORPORATE_ACTIONS.put("SPIN OFF", "Apply it with 'basis apply spin-off', giving the basis"
                 + " fraction from the company's Form 8937.");

@@ -1,12 +1,18 @@
 package com.basis.importer;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.basis.domain.Account;
 import com.basis.domain.event.LedgerEvent;
 import com.basis.reference.CommodityCatalog;
 import com.basis.reference.SymbolMapping;
+import com.basis.cli.BasisCli;
 import com.basis.support.Fixtures;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -39,7 +45,7 @@ class UnrecognisedActionAdviceTest {
         "REVERSE SPLIT SOME CORP (ABC), basis apply reverse-split",
         "SPIN OFF SOME CORP (ABC), basis apply spin-off",
         "STOCK DIVIDEND SOME CORP (ABC), basis apply stock-dividend",
-        "CASH IN LIEU OF FRACTIONAL SHARE (ABC), basis apply cash-in-lieu",
+        "CASH IN LIEU OF FRACTIONAL SHARE (ABC), basis apply reverse-split",
         "NAME CHANGE SOME CORP (ABC), config/symbol-changes.csv",
     })
     @DisplayName("stopping on a corporate action names the command that handles it properly")
@@ -49,6 +55,37 @@ class UnrecognisedActionAdviceTest {
                 .hasMessageContaining(expectedRemedy)
                 .as("the generic advice is the harmful one here and must not appear")
                 .hasMessageNotContaining("add the phrase to the");
+    }
+
+    @Test
+    @DisplayName("every command the advice names is a command the CLI actually dispatches")
+    void theAdviceNeverNamesACommandThatDoesNotExist() {
+        // The reason this test exists. The first version of this advice told people to run
+        // "basis apply cash-in-lieu", which has never been a command: cash in lieu is a flag
+        // on apply reverse-split. The test that covered it asserted the message SAID that,
+        // not that what it said was true, so it passed while sending people to a usage error.
+        Pattern named = Pattern.compile("basis apply ([a-z-]+)");
+        List<String> namedCommands = new ArrayList<>();
+        for (String advice : StatementRowMapper.CORPORATE_ACTIONS.values()) {
+            Matcher matcher = named.matcher(advice);
+            while (matcher.find()) {
+                namedCommands.add(matcher.group(1));
+            }
+        }
+
+        assertThat(namedCommands).as("the advice should name some commands, or this proves nothing")
+                .isNotEmpty();
+        assertThat(namedCommands)
+                .as("every one of these has to be something 'basis apply' will accept")
+                .isSubsetOf(BasisCli.APPLY_ACTIONS);
+    }
+
+    @Test
+    @DisplayName("cash in lieu is offered as the flag it is, not as a command it is not")
+    void cashInLieuIsOfferedAsAFlag() {
+        assertThatThrownBy(() -> map("CASH IN LIEU OF FRACTIONAL SHARE (ABC)"))
+                .hasMessageContaining("--cash-in-lieu")
+                .hasMessageContaining("apply reverse-split");
     }
 
     @Test
