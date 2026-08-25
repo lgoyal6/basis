@@ -223,9 +223,20 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
      * lot in a position, so basis takes them from a person or from reference data instead of
      * guessing at a row.
      */
+    /**
+     * Every subcommand of {@code apply}, and the only list of them.
+     *
+     * <p>Public because other things name these commands in their own messages, and a
+     * message that names a command nobody can run is worse than no message. The importer
+     * tells someone to run one of these when a corporate action stops an import, and a test
+     * holds that advice against this list. It had to: the first version of that advice named
+     * "apply cash-in-lieu", which has never been a command.
+     */
+    public static final List<String> APPLY_ACTIONS = List.of(
+            "split", "reverse-split", "stock-dividend", "spin-off", "average-cost", "break");
+
     private int apply(List<String> rest, ApplicationArguments args) {
-        String action = requireArg(rest, 0,
-                "apply split|reverse-split|stock-dividend|spin-off|break ...");
+        String action = requireArg(rest, 0, "apply " + String.join("|", APPLY_ACTIONS) + " ...");
         return switch (action) {
             case "split" -> applySplit(rest, args, false);
             case "reverse-split" -> applySplit(rest, args, true);
@@ -234,8 +245,7 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
             case "break" -> applyBreak(rest, args);
             case "average-cost" -> applyAverageCost(rest, args);
             default -> throw new IllegalArgumentException("unknown action '" + action
-                    + "'. Expected split, reverse-split, stock-dividend, spin-off, average-cost"
-                    + " or break.");
+                    + "'. Expected one of: " + String.join(", ", APPLY_ACTIONS) + ".");
         };
     }
 
