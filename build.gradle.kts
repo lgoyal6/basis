@@ -23,6 +23,11 @@ extra["archunitVersion"] = "1.4.1"
 
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
+    // The web layer is one command, "basis serve". Everything else stays a CLI over the
+    // same ledger: the arithmetic has exactly one implementation and the browser only ever
+    // renders what the server computed. See docs/ARCHITECTURE.md section 30.
+    implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.springframework.boot:spring-boot-starter-thymeleaf")
     implementation("org.flywaydb:flyway-core")
     runtimeOnly("org.flywaydb:flyway-database-postgresql")
     runtimeOnly("org.postgresql:postgresql")
