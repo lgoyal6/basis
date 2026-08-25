@@ -30,10 +30,12 @@ Week 4. Ledger core, distributions, transfers, corporate actions, reconciliation
 - A market data client that populates the split cache, so most split-shaped breaks
   explain themselves
 
-- A Fidelity statement importer, so transactions get in without being hand fed
+- A statement importer driven by per-broker config files, so a new broker costs a
+  properties file rather than code
 
-Every event the ledger declares is now handled. Still to come: importers for other
-brokers, and cash in lieu of fractional shares. No web layer.
+Every event the ledger declares is now handled. Still to come: cash in lieu of
+fractional shares, and real exports to validate the shipped broker profiles against.
+No web layer.
 
 ### What a break looks like
 
@@ -95,12 +97,38 @@ java -jar build/libs/basis.jar settle 1 --accept --note "applied the split"
 Exit codes: `0` ok, `1` failed, `2` bad usage, `3` reconcile found breaks. The last
 one is deliberately not a failure, so a pipeline can act on a disagreement.
 
-Statement import currently understands **Fidelity**'s Accounts History CSV export.
-It was built from knowledge of that format rather than a real file, so expect the
-column names or action wording to need a correction on first contact. Both live in
-lookup tables (`FidelityCsvParser.COLUMN_ALIASES` and `FidelityActions`), so a fix
-is a one line edit. A row it cannot read stops the import and names the line rather
-than being silently skipped.
+### Adding your broker
+
+No broker is named anywhere in the Java. A broker is a properties file in
+`config/brokers/`, and `fidelity.properties` and `schwab.properties` ship as
+starting points:
+
+```properties
+profile.name = Fidelity
+date.formats = MM/dd/yyyy | M/d/yyyy
+column.date   = Run Date | Date | Trade Date
+column.action = Action | Transaction Type
+column.amount = Amount | Net Amount
+action.BUY    = YOU BOUGHT | BOUGHT | PURCHASE
+action.SELL   = YOU SOLD | SOLD
+```
+
+Column matching ignores case and anything in parentheses, so `Price ($)` matches
+`Price`. Actions match by longest prefix, since the real text runs on past the verb
+(`YOU BOUGHT PROSHARES ULTRAPRO QQQ`).
+
+Both shipped profiles were written from knowledge of those formats, not from real
+exports, so expect a column name or an action phrase to need correcting on first
+contact. That correction is an edit to the properties file. A row basis cannot read
+stops the import and prints the exact wording it did not recognise, which is how you
+find out what to add.
+
+### Getting your transaction history
+
+**Fidelity**: log in, select the account, `Activity & Orders`, `History`, set a date
+range, `Apply`, then `Download`. Each download is capped at 90 days and about 5 years
+are available, so a full history is several files. Importing overlapping files is
+safe: rows already in the ledger are skipped.
 
 The position snapshot for `reconcile` is basis's own format, not a broker's:
 
