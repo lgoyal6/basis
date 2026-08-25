@@ -1321,3 +1321,84 @@ the basis fraction from the company's Form 8937, which is the only place that nu
 The alternative, keeping the code and calling it low confidence, was rejected because a cause
 code is what metrics group by. A count of spin offs found, most of them coincidences, is worse
 than no count.
+
+## 31. Foreign currency, and the three gaps that could not be closed
+
+Four gaps were named as worth closing. One was, one turned out to be a silent wrong answer
+rather than a missing feature, and two are blocked by something outside the code. The evidence
+for each is recorded here rather than left as an assertion.
+
+### 31.1 What the provider actually allows
+
+Probed against a real key rather than assumed, on the `/stable` API this project uses:
+
+| Endpoint | Result |
+| --- | --- |
+| `splits` | 200, already in use |
+| `historical-price-eod/full` for a currency pair | 200, which is what made this section possible |
+| `dividends` | 200, not currently used |
+| `symbol-change` | **402 Restricted** |
+| `mergers-acquisitions-search` | **402 Restricted** |
+| `mergers-acquisitions-latest` | 200, but a firehose of recent deals with no per symbol lookup |
+
+So automating ticker renames is not possible on this plan, and neither is asking whether a
+specific holding was ever acquired. The hand maintained `config/symbol-changes.csv` stays, not
+because a file is preferable but because the alternative costs money this project does not
+spend. The M&A "latest" feed is deliberately not used: a feed you cannot query for the symbol
+you care about cannot answer the question a break is asking, and wiring it up would look like
+coverage without being any.
+
+The Schwab profile remains unvalidated for a simpler reason: validating it requires a real
+Schwab export, and there is not one. It is documented as a guess in the file itself and in the
+README, which is the only honest state for it until somebody with a Schwab account runs it.
+
+### 31.2 The currency bug underneath the currency feature
+
+"A non-USD holding will not reconcile" was too kind. `LedgerState.openBasis` takes a currency
+and skips every lot not held in it, so asking for USD about a position bought in euros returned
+zero. Reconciliation compared the broker's real cost against that zero and produced a large,
+confidently worded break saying the entire cost basis was missing. Nothing failed, nothing was
+flagged, and the sentence explaining it was fluent and wrong.
+
+That is worse than refusing, and it is the shape of defect this whole project is built to avoid.
+
+There were three ways out:
+
+1. **Convert inside the ledger**, restating foreign lots into one reporting currency. Rejected:
+   a lot's cost is what was actually paid, and translating it bakes one day's rate into a
+   historical fact. It also destroys the ability to answer what the position cost in its own
+   currency, which is the only figure that is not an opinion.
+2. **Refuse any cross currency comparison.** Honest, and useless for the person who has one
+   foreign holding and wants to know if their broker agrees.
+3. **Convert for comparison only, and say which rate was used.** Chosen.
+
+So `openBasisByCurrency` returns the whole picture rather than one currency's slice, and
+reconciliation has three outcomes: it agrees once translated and is not a break at all, it still
+disagrees and gets its own `FX_TRANSLATION` code, or no rate is available and it says
+`CURRENCY_NOT_COMPARABLE` and names the command that would fix it.
+
+`FX_TRANSLATION` is a separate code from `BASIS_DRIFT` on purpose. Brokers translate at their
+own rate on their own date, so most of what survives translation is not an error, and grouping
+the two would bury real basis differences under foreign exchange noise.
+
+Rates are read from the cache and never fetched during a reconcile, the same rule split history
+follows: a reconcile should be reproducible and should not spend quota or hang on a provider
+that is down. `basis refresh-fx GBPUSD` brings them in deliberately. The inverse pair is derived
+rather than fetched, since USDEUR and EURUSD are the same fact.
+
+### 31.3 The entry point nobody could reach
+
+None of the above could be tested through the CLI at first, because `basis open` hardcoded
+`Currency.getInstance("USD")`. A sterling holding could not be entered at all: it was recorded
+as dollars, then compared against a broker reporting dollars, so the numbers looked comparable
+and were not.
+
+Adding `--currency` did not fix it either, and the reason is worth recording. Options that take
+a following word live in an allowlist, `OPTIONS_WITH_VALUES`, so adding one means editing two
+places. The flag was documented, read and defaulted, and because it was missing from that set
+the value never arrived and every foreign holding was still silently recorded in dollars.
+
+`DocumentedOptionsTest` now walks the real help text and fails if a documented option is not
+wired up. It was mutation tested against exactly this omission. The general lesson, which has
+now cost this project time three separate times: a feature that fails silently is worse than
+one that fails loudly, and an allowlist is a silent failure waiting for someone to forget it.
