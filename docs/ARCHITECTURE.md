@@ -1402,3 +1402,61 @@ the value never arrived and every foreign holding was still silently recorded in
 wired up. It was mutation tested against exactly this omission. The general lesson, which has
 now cost this project time three separate times: a feature that fails silently is worse than
 one that fails loudly, and an allowlist is a silent failure waiting for someone to forget it.
+
+## 32. One writer per account
+
+Until this section there was no concurrency control anywhere: no advisory locks, no
+`SELECT FOR UPDATE`, no serialisable isolation. That was survivable only because the tool had
+one user running one command at a time, and it was the sharpest unanswered question about
+calling this a ledger.
+
+### 32.1 The race, which was real
+
+Recording an event hydrates the whole ledger from the posting table, decides which lots a sale
+consumes from that snapshot, and appends the result. Two processes selling the same shares at
+once both read the same open lots, both select them, and both succeed. The position ends up
+over disposed, every later gain is computed from a basis counted twice, and nothing fails.
+
+No constraint catches it, and none could. Lot quantities are derived state rebuilt from
+postings, not a column with a check on it, so there is no unique index that would have noticed.
+The append is valid in isolation; only the pair is wrong.
+
+This was verified rather than assumed. `ConcurrentWriterTest` runs two real concurrent sells
+against a real Postgres, and with the lock removed it fails on every run of three. That
+mutation test is the reason this is a lock rather than a paragraph.
+
+### 32.2 Why a session lock and not a transaction
+
+The obvious implementation is `pg_advisory_xact_lock`, which releases at commit and cannot leak.
+It was rejected because it would require the whole import to become a single transaction, and
+that undoes a decision made much earlier: the import writes a batch marker first and clears it
+at the end, so a crash leaves visible evidence to recover from rather than silently vanishing
+(section 9). Trading that for a lock would be paying for concurrency safety with crash
+visibility.
+
+So `pg_try_advisory_lock` on a dedicated connection, held across exactly the work and released
+in a finally. Postgres also releases it when the connection closes, so a killed process cannot
+leave an account locked forever. Both, because a lock that can be leaked is a lock that will be.
+
+The lock is taken **before hydration**, not before the writes. The race is two importers reading
+the same state and each deciding lot consumption from it, so a lock taken after the read would
+protect nothing at all.
+
+### 32.3 Try, do not wait
+
+A second writer is refused immediately with a sentence saying what is happening. Blocking would
+be defensible for a service and is wrong for a command line tool: a command that appears to hang
+is indistinguishable from one that is broken, and the honest answer here is short.
+
+### 32.4 What is deliberately not locked
+
+**The web layer.** An upload is computed in memory and never written to Postgres, so two
+concurrent uploads share nothing to race over. The lock exists on the write path, and the web
+flow does not have one.
+
+**`rebuild`.** It truncates derived state and replays every posting, which is global rather than
+per account, so a per account lock does not fit it. A rebuild racing an import would produce
+derived state missing the newest postings, and the next rebuild corrects it, so the failure is
+temporary and self healing rather than a wrong number that persists. Locking it properly means a
+global lock, which is a different decision and is not needed until something other than one
+person runs this.
