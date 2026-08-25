@@ -14,6 +14,7 @@ import com.basis.domain.event.AverageCostElection;
 import com.basis.domain.event.Buy;
 import com.basis.domain.event.CashDividend;
 import com.basis.domain.event.Fee;
+import com.basis.domain.event.InterestEarned;
 import com.basis.domain.event.LedgerEvent;
 import com.basis.domain.event.OpeningBalance;
 import com.basis.domain.event.ReverseSplit;
@@ -56,6 +57,7 @@ public final class LedgerEventHandler {
             case StockDividend dividend -> restateForStockDividend(dividend, lots);
             case SpinOff spinOff -> allocate(spinOff, lots);
             case AverageCostElection election -> electAverageCost(election, lots);
+            case InterestEarned interest -> credit(interest);
         };
     }
 
@@ -125,6 +127,22 @@ public final class LedgerEventHandler {
                 .cash(LedgerAccounts.dividendIncome(dividend.commodity()), dividend.grossAmount().negate())
                 .cash(LedgerAccounts.WITHHOLDING_TAX, dividend.withheldAmount())
                 .plugAt(LedgerAccounts.cash(dividend.account()), dividend.grossAmount().currency());
+    }
+
+    /**
+     * Interest credited: income booked, any tax withheld expensed, the net landing in cash.
+     *
+     * <p>The same shape as a distribution, to a different income account. Nothing is
+     * disposed of, so nothing is realized.
+     */
+    private Transaction credit(InterestEarned interest) {
+        return TransactionBuilder.forEvent(interest)
+                .narration("Interest " + interest.grossAmount()
+                        + (interest.withheldAmount().isZero()
+                                ? "" : " less " + interest.withheldAmount() + " withheld"))
+                .cash(LedgerAccounts.INTEREST_INCOME, interest.grossAmount().negate())
+                .cash(LedgerAccounts.WITHHOLDING_TAX, interest.withheldAmount())
+                .plugAt(LedgerAccounts.cash(interest.account()), interest.grossAmount().currency());
     }
 
     /**

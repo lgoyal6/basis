@@ -42,6 +42,15 @@ public final class LedgerAccounts {
      */
     public static final Account WITHHOLDING_TAX = Account.of("Expenses:Taxes:Withholding");
 
+    /**
+     * Interest income.
+     *
+     * <p>Deliberately not filed under dividends. They are different kinds of income, taxed
+     * differently, and a question about dividend income should not find interest sitting in
+     * its total.
+     */
+    public static final Account INTEREST_INCOME = Account.of("Income:Interest");
+
     private LedgerAccounts() {
     }
 
