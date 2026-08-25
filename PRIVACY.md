@@ -1,5 +1,7 @@
 # What happens to the file you upload
 
+This describes the service running at https://basis-web-production.up.railway.app.
+
 You are being asked to upload a record of everything you have bought and sold. That is about
 as personal as a document gets, and "trust us" is not an answer. So this page describes what
 the code does, and names the file that does it, so you can check rather than believe.

@@ -21,7 +21,13 @@ That is real output, and the split history behind it is real: Apple did split 4 
 
 ## Try it
 
-Two ways, depending on whether you want to install anything.
+**[Use it now](https://basis-web-production.up.railway.app)**, no account and nothing to install. Upload the transaction history your
+broker gives you and see where basis disagrees with them. Your file is held in memory for two
+hours, deleted the moment you ask, and never written to a database: [PRIVACY.md](PRIVACY.md)
+explains why that distinction is the point rather than a detail. There is a demo button that
+needs no file at all.
+
+Or run it yourself, two ways, depending on whether you want to install anything.
 
 **In a browser, with no account.** `basis serve` runs a web app whose whole flow is upload a
 statement, see your breaks, leave. No signup, no email, no broker login. Your file is held in
