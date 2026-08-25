@@ -2,7 +2,6 @@ package com.basis.importer;
 
 import com.basis.domain.Account;
 import com.basis.domain.Commodity;
-import com.basis.domain.CommodityClass;
 import com.basis.domain.LotSelectionMethod;
 import com.basis.domain.Money;
 import com.basis.domain.Price;
@@ -14,6 +13,7 @@ import com.basis.domain.event.LedgerEvent;
 import com.basis.domain.event.Sell;
 import com.basis.domain.event.Transfer;
 import com.basis.ledger.LedgerAccounts;
+import com.basis.reference.CommodityCatalog;
 import com.basis.reference.SymbolMapping;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -45,6 +45,7 @@ public final class StatementRowMapper {
     private final Account brokerAccount;
     private final Account externalAccount;
     private final SymbolMapping renames;
+    private final CommodityCatalog catalog;
     private final String source;
 
     /**
@@ -53,11 +54,12 @@ public final class StatementRowMapper {
      */
     public StatementRowMapper(
             BrokerProfile profile, Account brokerAccount, Account externalAccount,
-            SymbolMapping renames, String source) {
+            SymbolMapping renames, CommodityCatalog catalog, String source) {
         this.profile = profile;
         this.brokerAccount = brokerAccount;
         this.externalAccount = externalAccount;
         this.renames = renames;
+        this.catalog = catalog;
         this.source = source;
     }
 
@@ -170,7 +172,10 @@ public final class StatementRowMapper {
             throw new StatementFormatException(row.location(source)
                     + ": this row needs a symbol and the Symbol column is empty");
         }
-        return renames.resolve(new Commodity(row.symbol(), CommodityClass.EQUITY));
+        // The catalog decides what kind of instrument it is, then renames decide what it is
+        // called today. A statement from 2021 says FB, and a fund is a fund whichever name
+        // it goes by.
+        return renames.resolve(catalog.resolve(row.symbol()));
     }
 
     private Quantity positiveQuantity(StatementRow row) {

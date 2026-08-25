@@ -29,6 +29,7 @@ import com.basis.reconcile.BrokerSnapshot;
 import com.basis.reconcile.Reconciler;
 import com.basis.reconcile.SnapshotScope;
 import com.basis.reference.SplitRefreshService;
+import com.basis.reference.CommodityCatalog;
 import com.basis.reference.SymbolMapping;
 import com.basis.reference.SymbolMappingFile;
 import java.math.BigDecimal;
@@ -36,6 +37,7 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
@@ -59,6 +61,21 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class BasisCli implements ApplicationRunner, org.springframework.boot.ExitCodeGenerator {
+
+    /**
+     * Options that take a value, so {@code --cost 250.00} can be written the way people
+     * actually write it.
+     *
+     * <p>Spring only understands {@code --name=value}. Everything else on a command line
+     * accepts a space, and the README documented the space form before anyone tried it, so
+     * the value silently failed to bind and the command complained about its own usage.
+     *
+     * <p>Listed explicitly rather than inferred, because joining any option to whatever
+     * follows it would turn {@code reconcile ACC --dry-run file.csv} into a flag whose value
+     * is the filename, and lose the file.
+     */
+    private static final Set<String> OPTIONS_WITH_VALUES = Set.of(
+            "cost", "kind", "on", "as-of", "external", "renames", "brokers", "commodities", "note");
 
     static final int OK = 0;
     static final int FAILED = 1;
@@ -158,7 +175,11 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
         SymbolMapping renames = SymbolMappingFile.load(
                 Path.of(optional(args, "renames").orElse("config/symbol-changes.csv")));
 
-        ImportReport report = importer.importStatement(file, profile, account, external, renames);
+        CommodityCatalog catalog = CommodityCatalog.load(
+                Path.of(optional(args, "commodities").orElse("config/commodities.csv")));
+
+        ImportReport report =
+                importer.importStatement(file, profile, account, external, renames, catalog);
         out.line(report.toString());
         for (String note : report.notes()) {
             out.line("  " + note);
@@ -179,7 +200,7 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
         String symbol = requireArg(rest, 1, usage);
         BigDecimal quantity = new BigDecimal(requireArg(rest, 2, usage));
         LocalDate on = on(args, usage);
-        Commodity commodity = AssertedEntries.commodity(symbol, optional(args, "kind").orElse(""));
+        Commodity commodity = commodityFor(symbol, args);
 
         LedgerEvent event;
         if (commodity.isCash()) {
@@ -223,8 +244,7 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
         String usage = "apply " + name + " <account> <symbol> <new:old> --on yyyy-mm-dd"
                 + (reverse ? " [--cash-in-lieu AMOUNT]" : "");
         Account account = Account.of(requireArg(rest, 1, usage));
-        Commodity commodity = AssertedEntries.commodity(requireArg(rest, 2, usage),
-                optional(args, "kind").orElse(""));
+        Commodity commodity = commodityFor(requireArg(rest, 2, usage), args);
         long[] ratio = AssertedEntries.ratio(requireArg(rest, 3, usage));
         LocalDate on = on(args, usage);
 
@@ -260,8 +280,7 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
     private int applyAverageCost(List<String> rest, ApplicationArguments args) {
         String usage = "apply average-cost <account> <symbol> --on yyyy-mm-dd [--kind MUTUAL_FUND]";
         Account account = Account.of(requireArg(rest, 1, usage));
-        Commodity commodity = AssertedEntries.commodity(requireArg(rest, 2, usage),
-                optional(args, "kind").orElse("MUTUAL_FUND"));
+        Commodity commodity = commodityFor(requireArg(rest, 2, usage), args);
         return recordAsserted(
                 AssertedEntries.averageCost(account, commodity, on(args, usage)),
                 "average cost election for " + commodity);
@@ -270,8 +289,7 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
     private int applyStockDividend(List<String> rest, ApplicationArguments args) {
         String usage = "apply stock-dividend <account> <symbol> <shares> --on yyyy-mm-dd";
         Account account = Account.of(requireArg(rest, 1, usage));
-        Commodity commodity = AssertedEntries.commodity(requireArg(rest, 2, usage),
-                optional(args, "kind").orElse(""));
+        Commodity commodity = commodityFor(requireArg(rest, 2, usage), args);
         Quantity shares = Quantity.of(new BigDecimal(requireArg(rest, 3, usage)));
         return recordAsserted(
                 AssertedEntries.stockDividend(account, commodity, shares, on(args, usage)),
@@ -282,8 +300,8 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
         String usage = "apply spin-off <account> <parent> <child> <shares-per-parent-share>"
                 + " <parent-basis-fraction> --on yyyy-mm-dd";
         Account account = Account.of(requireArg(rest, 1, usage));
-        Commodity parent = AssertedEntries.commodity(requireArg(rest, 2, usage), "");
-        Commodity child = AssertedEntries.commodity(requireArg(rest, 3, usage), "");
+        Commodity parent = commodityFor(requireArg(rest, 2, usage), args);
+        Commodity child = commodityFor(requireArg(rest, 3, usage), args);
         Quantity perShare = Quantity.of(new BigDecimal(requireArg(rest, 4, usage)));
         BigDecimal fraction = new BigDecimal(requireArg(rest, 5, usage));
         return recordAsserted(
@@ -368,6 +386,23 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
                 ? what + " applied"
                 : what + " was already recorded, so nothing changed");
         return OK;
+    }
+
+    /**
+     * A commodity as the catalog declares it, unless the command says otherwise.
+     *
+     * <p>A commodity's class is part of its identity, so a fund imported as an equity and an
+     * election made against it as a fund are two different things and the election would find
+     * nothing to average. Both paths read the same catalog so that cannot happen.
+     */
+    private static Commodity commodityFor(String symbol, ApplicationArguments args) {
+        String kind = optional(args, "kind").orElse("");
+        if (!kind.isBlank()) {
+            return AssertedEntries.commodity(symbol, kind);
+        }
+        return CommodityCatalog.load(
+                Path.of(optional(args, "commodities").orElse("config/commodities.csv")))
+                .resolve(symbol);
     }
 
     private static LocalDate on(ApplicationArguments args, String usage) {
@@ -565,6 +600,32 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
 
     private void printUsage() {
         printUsage(out);
+    }
+
+    /**
+     * Rewrites {@code --name value} as {@code --name=value} for the options that take one.
+     *
+     * <p>Applied before the application starts, so nothing downstream has to know that the
+     * two spellings exist.
+     */
+    public static String[] normaliseOptions(String[] args) {
+        List<String> normalised = new java.util.ArrayList<>(args.length);
+        for (int index = 0; index < args.length; index++) {
+            String argument = args[index];
+            String name = argument.startsWith("--") && !argument.contains("=")
+                    ? argument.substring(2)
+                    : null;
+            boolean takesNext = name != null
+                    && OPTIONS_WITH_VALUES.contains(name)
+                    && index + 1 < args.length
+                    && !args[index + 1].startsWith("--");
+            if (takesNext) {
+                normalised.add(argument + "=" + args[++index]);
+            } else {
+                normalised.add(argument);
+            }
+        }
+        return normalised.toArray(new String[0]);
     }
 
     /**

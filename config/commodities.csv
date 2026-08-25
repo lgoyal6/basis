@@ -1,0 +1,17 @@
+# What kind of instrument each ticker is.
+#
+# Statements do not say. A Fidelity export calls FXAIX "FIDELITY 500 INDEX FUND",
+# and reading that string is not a safe way to decide whether US rules let you
+# average its cost basis. So it is declared here instead.
+#
+# Anything not listed is treated as an ordinary equity, which is the conservative
+# direction: the worst it costs is average cost being refused for a fund nobody
+# declared, and the error says to add a line here.
+#
+# Kinds: EQUITY, ETF, MUTUAL_FUND, OPTION, CURRENCY, OTHER
+# Average cost is permitted only for MUTUAL_FUND.
+
+symbol,kind
+FXAIX,MUTUAL_FUND
+SPAXX,MUTUAL_FUND
+VTSAX,MUTUAL_FUND

@@ -13,6 +13,7 @@ import com.basis.domain.event.Sell;
 import com.basis.domain.event.Transfer;
 import com.basis.ledger.LedgerAccounts;
 import com.basis.reference.SymbolChange;
+import com.basis.reference.CommodityCatalog;
 import com.basis.reference.SymbolMapping;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -36,7 +37,8 @@ class StatementRowMapperTest {
     private static final BrokerProfile FIDELITY = BrokerProfiles.load("fidelity");
 
     private final StatementRowMapper mapper =
-            new StatementRowMapper(FIDELITY, IBKR, EXTERNAL, SymbolMapping.empty(), "history.csv");
+            new StatementRowMapper(FIDELITY, IBKR, EXTERNAL, SymbolMapping.empty(),
+                    CommodityCatalog.empty(), "history.csv");
 
     @Test
     @DisplayName("YOU BOUGHT becomes a purchase, with commission and fees charged together")
@@ -79,18 +81,34 @@ class StatementRowMapperTest {
     }
 
     @Test
-    @DisplayName("a reinvestment is two events, so the income lands somewhere and the shares get basis")
-    void reinvestmentIsADistributionThenAPurchase() {
+    @DisplayName("under Fidelity a reinvestment is only the purchase, since the dividend is its own row")
+    void fidelityReinvestmentIsJustAPurchase() {
         List<LedgerEvent> events =
                 mapper.toEvents(row("REINVESTMENT", "AAPL", "2", "150.00", "", "", "-300.00"));
+
+        assertThat(events)
+                .as("a real export reports the distribution separately, and counting it here"
+                        + " would book the income twice")
+                .singleElement()
+                .isInstanceOfSatisfying(Buy.class, buy -> {
+                    assertThat(buy.quantity().value()).isEqualByComparingTo("2");
+                    assertThat(buy.price().value()).isEqualByComparingTo("150.00");
+                });
+    }
+
+    @Test
+    @DisplayName("where a broker reports only the reinvestment, it is a distribution and a purchase")
+    void reinvestmentKindIsADistributionThenAPurchase() {
+        StatementRowMapper schwab = new StatementRowMapper(BrokerProfiles.load("schwab"), IBKR,
+                EXTERNAL, SymbolMapping.empty(), CommodityCatalog.empty(), "schwab.csv");
+
+        List<LedgerEvent> events =
+                schwab.toEvents(row("Reinvest Shares", "AAPL", "2", "150.00", "", "", "-300.00"));
 
         assertThat(events).hasSize(2);
         assertThat(events.get(0)).isInstanceOfSatisfying(CashDividend.class, dividend ->
                 assertThat(dividend.grossAmount().toMajorUnits()).isEqualByComparingTo("300.00"));
-        assertThat(events.get(1)).isInstanceOfSatisfying(Buy.class, buy -> {
-            assertThat(buy.quantity().value()).isEqualByComparingTo("2");
-            assertThat(buy.price().value()).isEqualByComparingTo("150.00");
-        });
+        assertThat(events.get(1)).isInstanceOf(Buy.class);
         assertThat(events.get(0).idempotencyKey())
                 .as("two events from one row need different keys or the second is dropped")
                 .isNotEqualTo(events.get(1).idempotencyKey());
@@ -142,7 +160,7 @@ class StatementRowMapperTest {
     void appliesRenamesAtImport() {
         StatementRowMapper renaming = new StatementRowMapper(FIDELITY, IBKR, EXTERNAL,
                 SymbolMapping.of(List.of(new SymbolChange("FB", "META", LocalDate.of(2022, 6, 9), ""))),
-                "history.csv");
+                CommodityCatalog.empty(), "history.csv");
 
         LedgerEvent event = renaming.toEvents(
                 row("YOU BOUGHT", "FB", "10", "200.00", "0.00", "0.00", "-2000.00")).get(0);
@@ -190,7 +208,9 @@ class StatementRowMapperTest {
     @Test
     @DisplayName("the longer, more specific action phrase wins")
     void longestPrefixWins() {
-        assertThat(FIDELITY.classify("DIVIDEND REINVESTMENT AAPL")).contains(ActionKind.REINVESTMENT);
+        assertThat(FIDELITY.classify("DIVIDEND REINVEST AAPL"))
+                .as("the longer phrase wins, and for Fidelity it means a purchase")
+                .contains(ActionKind.BUY);
         assertThat(FIDELITY.classify("DIVIDEND RECEIVED AAPL")).contains(ActionKind.CASH_DIVIDEND);
     }
 

@@ -11,6 +11,7 @@ import com.basis.ledger.LedgerAccounts;
 import com.basis.ledger.LedgerState;
 import com.basis.persistence.DerivedStateProjector;
 import com.basis.persistence.DerivedStateRepository;
+import com.basis.reference.CommodityCatalog;
 import com.basis.reference.SymbolMapping;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -87,7 +88,8 @@ class BrokerAgnosticImportTest {
         Files.writeString(file, SCHWAB_EXPORT, StandardCharsets.UTF_8);
 
         ImportReport report = importer.importStatement(
-                file, BrokerProfiles.load("schwab"), SCHWAB, EXTERNAL, SymbolMapping.empty());
+                file, BrokerProfiles.load("schwab"), SCHWAB, EXTERNAL, SymbolMapping.empty(),
+                CommodityCatalog.empty());
 
         assertThat(report.eventsRecorded()).isEqualTo(4);
 
@@ -117,9 +119,10 @@ class BrokerAgnosticImportTest {
                 """, StandardCharsets.UTF_8);
 
         importer.importStatement(schwab, BrokerProfiles.load("schwab"), SCHWAB, EXTERNAL,
-                SymbolMapping.empty());
+                SymbolMapping.empty(), CommodityCatalog.empty());
         importer.importStatement(fidelity, BrokerProfiles.load("fidelity"),
-                Account.of("Assets:Broker:Fidelity"), EXTERNAL, SymbolMapping.empty());
+                Account.of("Assets:Broker:Fidelity"), EXTERNAL, SymbolMapping.empty(),
+                CommodityCatalog.empty());
 
         LedgerState state = projector.project();
         assertThat(state.position(LedgerAccounts.holding(SCHWAB, MSFT), MSFT).value())
