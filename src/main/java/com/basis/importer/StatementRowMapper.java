@@ -80,7 +80,7 @@ public final class StatementRowMapper {
             case CASH_DIVIDEND -> List.of(dividend(row));
             case REINVESTMENT -> reinvestment(row);
             case INTEREST -> List.of(interest(row));
-            case FEE -> List.of(fee(row, LedgerAccounts.COMMISSIONS));
+            case FEE -> List.of(fee(row, LedgerAccounts.FEES));
             case WITHHOLDING -> List.of(fee(row, LedgerAccounts.WITHHOLDING_TAX));
             case CASH_TRANSFER -> List.of(cashTransfer(row));
             case SECURITY_TRANSFER -> List.of(securityTransfer(row));
