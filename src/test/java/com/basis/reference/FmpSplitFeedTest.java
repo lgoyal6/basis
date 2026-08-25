@@ -140,7 +140,9 @@ class FmpSplitFeedTest {
         assertThat(properties.baseUrl()).isEqualTo("https://financialmodelingprep.com/stable");
         assertThat(properties.timeout().toSeconds()).isEqualTo(20);
         assertThat(properties.refreshAfter().toDays()).isEqualTo(7);
-        assertThat(properties.dailyRequestBudget()).isEqualTo(50);
+        assertThat(properties.dailyRequestBudget())
+                .as("half of the 250 a day the free plan states")
+                .isEqualTo(125);
         assertThat(properties.hasKey()).isFalse();
         properties.requireUsable();
     }
