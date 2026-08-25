@@ -30,8 +30,10 @@ Week 4. Ledger core, distributions, transfers, corporate actions, reconciliation
 - A market data client that populates the split cache, so most split-shaped breaks
   explain themselves
 
-Every event the ledger declares is now handled. Still to come: statement parsers,
-and cash in lieu of fractional shares. No web layer.
+- A Fidelity statement importer, so transactions get in without being hand fed
+
+Every event the ledger declares is now handled. Still to come: importers for other
+brokers, and cash in lieu of fractional shares. No web layer.
 
 ### What a break looks like
 
@@ -77,23 +79,30 @@ Needs JDK 21 and a Postgres 16. Build a jar and ask it what it does:
 java -jar build/libs/basis.jar --help
 ```
 
-Point it at a database and reconcile a position snapshot against the ledger:
+Import a statement, then reconcile a position snapshot against it:
 
 ```
 export BASIS_DB_URL=jdbc:postgresql://localhost:5432/basis
 export BASIS_DB_USER=basis BASIS_DB_PASSWORD=basis
 
+java -jar build/libs/basis.jar import fidelity Assets:Broker:Fidelity history.csv
 java -jar build/libs/basis.jar status
-java -jar build/libs/basis.jar reconcile Assets:Broker:IBKR positions.csv --as-of 2026-03-31
-java -jar build/libs/basis.jar breaks Assets:Broker:IBKR
+java -jar build/libs/basis.jar reconcile Assets:Broker:Fidelity positions.csv --as-of 2026-03-31
+java -jar build/libs/basis.jar breaks Assets:Broker:Fidelity
 java -jar build/libs/basis.jar settle 1 --accept --note "applied the split"
 ```
 
 Exit codes: `0` ok, `1` failed, `2` bad usage, `3` reconcile found breaks. The last
 one is deliberately not a failure, so a pipeline can act on a disagreement.
 
-The snapshot is basis's own format, not a broker's, since the statement parsers do
-not exist yet:
+Statement import currently understands **Fidelity**'s Accounts History CSV export.
+It was built from knowledge of that format rather than a real file, so expect the
+column names or action wording to need a correction on first contact. Both live in
+lookup tables (`FidelityCsvParser.COLUMN_ALIASES` and `FidelityActions`), so a fix
+is a one line edit. A row it cannot read stops the import and names the line rather
+than being silently skipped.
+
+The position snapshot for `reconcile` is basis's own format, not a broker's:
 
 ```
 symbol,quantity,cost_basis,kind

@@ -789,3 +789,79 @@ entire product is an explanation a person reads is not a cosmetic category.
 
 None of these is subtle, and none of them was findable from a test that asserts on a
 returned object rather than on what a person sees.
+
+## 24. The Fidelity importer, built against a format nobody has verified
+
+Written from knowledge of Fidelity's Accounts History export rather than from a real one,
+which is the first thing to know about it and is why the design puts everything likely to
+be wrong in tables rather than in code.
+
+- **Column names** live in `FidelityCsvParser.COLUMN_ALIASES`, matched by name and case
+  insensitively, ignoring any parenthesised unit so `Price ($)` and `Price` are the same
+  column. A reordered export still reads correctly; a renamed one is a one line fix.
+- **Action words** live in `FidelityActions`, matched by longest prefix because the real
+  text continues past the verb: `YOU BOUGHT PROSHARES ULTRAPRO QQQ`. Adding a phrase is one
+  line.
+
+Three things about the file shape drive the parser. The CSV body is surrounded by junk, so
+the header is found by looking for a line naming both a date and an action column, and the
+body ends at the first line with no date in it. Descriptions contain commas, so fields are
+split with quotes respected: `"APPLE INC, COM"` would otherwise shift every column after it
+and put a price where a quantity belongs. And an empty cell is null rather than zero,
+because a dividend row has no share count and calling that zero is a claim.
+
+### An unreadable row stops the whole import
+
+The tempting alternative is skipping it. That produces a ledger quietly missing a
+transaction, which surfaces weeks later as a break with a confidently wrong cause attached,
+and that is the exact failure this project exists to prevent. So a row whose action is not
+recognised throws, naming the line, the action text, and the list of phrases that are
+understood.
+
+Parsing happens **before** the import batch opens, so a file with one bad line leaves no
+abandoned batch behind and writes nothing at all. Finding out on row 400 that row 12 was
+unreadable, having written 399 rows, is the worst of both.
+
+### The crash marker finally has something to mark
+
+`ImportService` is the first thing in the project that can leave a batch in flight. Week 1
+built the schema for it, week 1's tests staged one by hand, and until now nothing could ever
+have produced one for real. It is deliberately **not** wrapped in a single database
+transaction: the point of a nullable `committed_at` is that a half written import is visible
+and recoverable, and one big transaction would roll itself back and leave no record that
+anyone tried.
+
+### source_row is JSONB and a CSV line is not JSON
+
+Caught by the first end to end test. The week 1 schema requires JSONB and requires the
+original row verbatim, and those two pull against each other for a CSV broker.
+
+The line is stored verbatim under a `raw` key inside an envelope that also records the file
+and the row number. Reconstructing the row as a JSON object of parsed fields would be
+prettier and would defeat the purpose: a parser bug is fixable by replay precisely because
+the original text survived the parser.
+
+### Re-import had to be checked before the ledger, not after
+
+Importing the same file twice threw `lot ... is already open`. The idempotency key is
+enforced by a unique constraint on insert, but the event is replayed through a hydrated
+ledger *first*, and the ledger refused to reopen a lot that was already open before the
+database ever got the chance to say it had seen this row.
+
+So `LedgerRepository.exists` is asked before the event is replayed. The unique constraint is
+still the last word; this is what stops the ordinary case, overlapping statements, from ever
+reaching it. Overlapping statements are the normal way to use this tool, and that path has
+to be quiet.
+
+### Fidelity gives no row identifier
+
+So the row's position in the file is it, combined with the verbatim line in the idempotency
+key. Re-importing a file is a no op, while two genuinely separate fills of the same size at
+the same price on the same day stay separate.
+
+### What is not mapped
+
+Anything not in the action table, which currently means interest, margin, options
+assignments and corporate action rows as Fidelity words them. Each will announce itself with
+the exact text the first time a real statement contains one. That is the intended way to
+find them.
