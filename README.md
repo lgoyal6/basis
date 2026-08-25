@@ -19,8 +19,25 @@ Instead of "you have 30 fewer shares than expected", you get this:
 That is real output, and the split history behind it is real: Apple did split 4 for 1 on
 2020-08-31.
 
+## Try it
+
+One command, no API key, no data of your own. It builds a history that never applied a
+split, asks a broker snapshot whether that history is right, and lets basis explain the
+difference:
+
+```bash
+git clone https://github.com/lgoyal6/basis && cd basis
+./scripts/demo.sh
+```
+
+Needs JDK 21 and Docker, and tears the database down when it finishes. It walks the whole
+loop: import, reconcile, find the ratio, refuse to call it a split without evidence, record
+the split, reconcile again, apply the fix, confirm nothing is left, then throw the derived
+state away and replay it from the postings.
+
 ## Contents
 
+- [Try it](#try-it)
 - [What it refuses to do](#what-it-refuses-to-do)
 - [Quickstart](#quickstart)
 - [How reconciliation works](#how-reconciliation-works)
@@ -141,7 +158,14 @@ states, and collapsing them into one is how a tool ends up confidently wrong.
 ## Market data
 
 Split history comes from Financial Modeling Prep and is cached in `reference_data`.
-It is off by default and touches the network only when switched on:
+It is off by default and touches the network only when switched on.
+
+You do not need it. A provider is one source of evidence, not the only one, and it can be
+wrong or paywall the symbol you care about. `basis cache-split DEMO 4:1 --on 2020-08-31`
+records a split by hand from a broker notice, and `status` shows which facts came from a
+provider and which somebody typed.
+
+To use the provider anyway:
 
 ```
 set -a; source .env; set +a          # Spring does not read .env itself
@@ -170,6 +194,7 @@ basis --help
 | `settle <id> --accept\|--reject\|--resolved` | record a human's judgement on a break |
 | `status` | positions, derived state, open breaks, reference data freshness |
 | `refresh-splits [SYMBOL...]` | fetch split history for symbols that need it |
+| `cache-split <symbol> <new:old> --on DATE` | record a split by hand, no provider needed |
 | `rebuild` | truncate derived state and replay it from the postings |
 | `recover` | resolve an import batch that was interrupted |
 
