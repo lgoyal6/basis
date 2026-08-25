@@ -80,6 +80,7 @@ public final class StatementRowMapper {
             case WITHHOLDING -> List.of(fee(row, LedgerAccounts.WITHHOLDING_TAX));
             case CASH_TRANSFER -> List.of(cashTransfer(row));
             case SECURITY_TRANSFER -> List.of(securityTransfer(row));
+            case IGNORE -> List.of();
         };
     }
 

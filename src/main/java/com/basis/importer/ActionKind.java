@@ -22,5 +22,19 @@ public enum ActionKind {
     /** Cash moving in or out of the account. */
     CASH_TRANSFER,
     /** Securities moving in or out of the account. */
-    SECURITY_TRANSFER
+    SECURITY_TRANSFER,
+    /**
+     * A row that carries no ledger effect and is deliberately skipped.
+     *
+     * <p>Statements contain informational lines: a running balance, a corporate action
+     * notice whose real effect arrives on other rows, a header repeated mid file. Those have
+     * to go somewhere, and the choice is between skipping them silently and skipping them on
+     * purpose.
+     *
+     * <p>This is on purpose. A phrase only lands here because someone put it in a broker
+     * profile, and the import reports how many rows it ignored, so the count is visible even
+     * when the rows are not. Silently dropping an unrecognised row is the failure this whole
+     * importer is shaped to avoid; declaring that a row means nothing is a different thing.
+     */
+    IGNORE
 }
