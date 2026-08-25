@@ -1,0 +1,62 @@
+# Publishes site/ to GitHub Pages.
+#
+# The page is a recording, not a running instance. There is no web layer and this workflow
+# does not add one: it copies one self-contained HTML file to a static host. The ledger
+# arithmetic stays in Java against Postgres, because a second implementation in JavaScript
+# could disagree with the first, and a project whose whole claim is "the numbers are right"
+# cannot afford two answers.
+#
+# The recorded session inside that file was captured from a real run of scripts/demo.sh.
+# Re-record it by running the script and regenerating the page, not by editing the output
+# by hand: a demo showing output the binary never produced is a lie with a nice font.
+
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and let a newer commit win rather than queueing behind an older one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fail if the page is not self contained
+        # No CDN, no external fonts, no remote images. A demo that breaks because someone
+        # else's host went down is worse than no demo. Anchor hrefs are deliberately not
+        # checked: linking to the repo is the point, loading assets from it is not.
+        run: |
+          if grep -Eqi '<(script|img|iframe|source|audio|video)[^>]+src="https?://|<link[^>]+href="https?://|url\((["'"'"']?)https?://' site/index.html; then
+            echo "site/index.html loads an external asset:"
+            grep -Eni '<(script|img|iframe|source|audio|video)[^>]+src="https?://|<link[^>]+href="https?://|url\((["'"'"']?)https?://' site/index.html
+            echo "Inline it. Links in prose are fine; assets are not."
+            exit 1
+          fi
+          echo "self contained"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
