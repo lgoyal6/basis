@@ -86,7 +86,7 @@ public final class StatementRowMapper {
 
     private LedgerEvent buy(StatementRow row) {
         return new Buy(row.date(), brokerAccount, reference(row), row.asJson(source),
-                commodity(row), positiveQuantity(row), price(row), charges(row));
+                commodity(row), positiveQuantity(row), tradePrice(row, false), charges(row));
     }
 
     private LedgerEvent sell(StatementRow row) {
@@ -94,7 +94,7 @@ public final class StatementRowMapper {
         // the direction only in the action text. Either way the event states it positive and
         // the handler emits the negative postings, so one sign convention reaches the ledger.
         return new Sell(row.date(), brokerAccount, reference(row), row.asJson(source),
-                commodity(row), positiveQuantity(row), price(row), charges(row),
+                commodity(row), positiveQuantity(row), tradePrice(row, true), charges(row),
                 LotSelectionMethod.FIFO, List.of());
     }
 
@@ -113,7 +113,7 @@ public final class StatementRowMapper {
      */
     private List<LedgerEvent> reinvestment(StatementRow row) {
         Quantity shares = positiveQuantity(row);
-        Price unitPrice = price(row);
+        Price unitPrice = tradePrice(row, false);
         Money cost = Money.round(shares.multiplyBy(unitPrice), USD);
         if (!cost.isPositive()) {
             throw new StatementFormatException(row.location(source)
@@ -183,24 +183,40 @@ public final class StatementRowMapper {
     }
 
     /**
-     * Price per share, derived from the amount when the column is blank.
+     * Price per share for a trade, worked out from the money that actually moved.
      *
-     * <p>Some rows carry an amount and a quantity but no price. Deriving it keeps the lot's
-     * cost right; refusing the row would lose a real transaction over a missing cell.
+     * <p>The Price column is not used when an amount is available, and that is deliberate.
+     * A real Fidelity export sold 1.844 shares at a stated price of 271.2 for an amount of
+     * 500.00. Multiplying gives 500.0928, so trusting the price column would have credited
+     * nine cents that never arrived, and every trade would have left a small cash break
+     * behind it. The price is rounded for display; the amount is the money.
+     *
+     * <p>Charges are added back for a sale and taken off a purchase, because the amount is
+     * net of them either way and the unit price is of the shares alone. That keeps the
+     * commission expensed rather than capitalised, which is the week 1 decision in
+     * docs/ARCHITECTURE.md section 3.
+     *
+     * @param sale true when the amount is money coming in rather than going out
      */
-    private Price price(StatementRow row) {
+    private Price tradePrice(StatementRow row, boolean sale) {
+        BigDecimal quantity = row.quantityOrZero().abs();
+        BigDecimal amount = row.amountOrZero().abs();
+        BigDecimal charges = row.totalCharges().abs();
+
+        if (quantity.signum() > 0 && amount.signum() > 0) {
+            BigDecimal gross = sale ? amount.add(charges) : amount.subtract(charges);
+            if (gross.signum() > 0) {
+                return Price.of(gross.divide(quantity, Price.SCALE, java.math.RoundingMode.HALF_EVEN), USD);
+            }
+        }
+        // No amount to work from, so fall back to what the statement said the price was.
         BigDecimal stated = row.price();
         if (stated != null && stated.abs().signum() > 0) {
             return Price.of(stated.abs(), USD);
         }
-        BigDecimal quantity = row.quantityOrZero().abs();
-        BigDecimal amount = row.amountOrZero().abs();
-        if (quantity.signum() == 0 || amount.signum() == 0) {
-            throw new StatementFormatException(row.location(source)
-                    + ": no price, and none can be worked out from a quantity of "
-                    + row.quantity() + " and an amount of " + row.amount());
-        }
-        return Price.of(amount.divide(quantity, Price.SCALE, java.math.RoundingMode.HALF_EVEN), USD);
+        throw new StatementFormatException(row.location(source)
+                + ": no price, and none can be worked out from a quantity of "
+                + row.quantity() + " and an amount of " + row.amount());
     }
 
     private Money charges(StatementRow row) {
