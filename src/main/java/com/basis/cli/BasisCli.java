@@ -28,6 +28,7 @@ import com.basis.reconcile.BreakStatus;
 import com.basis.reconcile.BrokerSnapshot;
 import com.basis.reconcile.Reconciler;
 import com.basis.reconcile.SnapshotScope;
+import com.basis.reference.FxRefreshService;
 import com.basis.reference.SplitRefreshService;
 import com.basis.reference.CommodityCatalog;
 import com.basis.reference.SymbolMapping;
@@ -78,8 +79,18 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
      * follows it would turn {@code reconcile ACC --dry-run file.csv} into a flag whose value
      * is the filename, and lose the file.
      */
-    private static final Set<String> OPTIONS_WITH_VALUES = Set.of(
-            "cost", "kind", "on", "as-of", "external", "renames", "brokers", "commodities", "note");
+    /**
+     * Options that take a following word, so "--on 2026-01-01" works as well as "--on=...".
+     *
+     * <p>An allowlist, which means adding an option in two places or it silently does nothing.
+     * That is exactly what happened to {@code --currency}: the flag was documented, parsed and
+     * defaulted, and because it was missing from here the value never reached the parser and
+     * every foreign holding was quietly recorded in dollars. There is a test below that walks
+     * the usage text and fails if a documented option is missing from this set.
+     */
+    static final Set<String> OPTIONS_WITH_VALUES = Set.of(
+            "cost", "kind", "on", "as-of", "external", "renames", "brokers", "commodities",
+            "note", "currency", "cash-in-lieu", "broker", "port");
 
     static final int OK = 0;
     static final int FAILED = 1;
@@ -90,7 +101,9 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
     private final DerivedStateRepository derived;
     private final BreakRecordRepository breaks;
     private final ReferenceDataRepository referenceData;
+    private final com.basis.reconcile.ExchangeRates rates;
     private final SplitRefreshService refresh;
+    private final FxRefreshService fxRefresh;
     private final StartupRecovery recovery;
     private final ImportService importer;
     private final CliOutput out;
@@ -102,7 +115,9 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
             DerivedStateRepository derived,
             BreakRecordRepository breaks,
             ReferenceDataRepository referenceData,
+            com.basis.reconcile.ExchangeRates rates,
             SplitRefreshService refresh,
+            FxRefreshService fxRefresh,
             StartupRecovery recovery,
             ImportService importer,
             CliOutput out) {
@@ -110,7 +125,9 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
         this.derived = derived;
         this.breaks = breaks;
         this.referenceData = referenceData;
+        this.rates = rates;
         this.refresh = refresh;
+        this.fxRefresh = fxRefresh;
         this.recovery = recovery;
         this.importer = importer;
         this.out = out;
@@ -150,6 +167,7 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
             case "settle" -> settle(rest, args);
             case "reconcile" -> reconcile(rest, args);
             case "refresh-splits" -> refreshSplits(rest);
+            case "refresh-fx" -> refreshFx(rest);
             case "cache-split" -> cacheSplit(rest, args);
             case "rebuild" -> rebuild();
             case "recover" -> recover();
@@ -199,8 +217,27 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
      * it has to be asserted or every holding that predates the oldest download reconciles as
      * a security the ledger has never heard of.
      */
+    /**
+     * The currency a cost is quoted in, defaulting to dollars.
+     *
+     * <p>A default rather than a required flag, because most users of this are American and
+     * making everybody state USD would be noise. The default is stated in the usage line so
+     * somebody entering a foreign holding can see there is a switch to reach for.
+     */
+    private static java.util.Currency currencyFor(ApplicationArguments args) {
+        String code = optional(args, "currency").orElse("USD").trim().toUpperCase(
+                java.util.Locale.ROOT);
+        try {
+            return java.util.Currency.getInstance(code);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("'" + code + "' is not a currency code."
+                    + " Use a three letter ISO code such as USD, GBP or EUR.");
+        }
+    }
+
     private int openingBalance(List<String> rest, ApplicationArguments args) {
-        String usage = "open <account> <symbol> <quantity> [--cost PRICE] [--kind KIND] --on yyyy-mm-dd";
+        String usage = "open <account> <symbol> <quantity> [--cost PRICE] [--currency CODE]"
+                + " [--kind KIND] --on yyyy-mm-dd";
         Account account = Account.of(requireArg(rest, 0, usage));
         String symbol = requireArg(rest, 1, usage);
         BigDecimal quantity = new BigDecimal(requireArg(rest, 2, usage));
@@ -214,8 +251,13 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
             String cost = optional(args, "cost").orElseThrow(() -> new IllegalArgumentException(
                     "an opening balance of " + symbol + " needs --cost, the price it was acquired at."
                             + " Without a basis every later sale of it reports the wrong gain."));
+            // The currency the position was actually bought in, not an assumption. This was
+            // hardcoded to USD, which meant a sterling holding could not be entered at all:
+            // it was recorded as dollars and then reconciled against a broker reporting
+            // dollars, so the numbers looked comparable and were not.
+            java.util.Currency currency = currencyFor(args);
             event = AssertedEntries.openingSecurity(account, commodity, Quantity.of(quantity),
-                    Price.of(new BigDecimal(cost), java.util.Currency.getInstance("USD")), on);
+                    Price.of(new BigDecimal(cost), currency), on);
         }
         return recordAsserted(event, "opening balance");
     }
@@ -532,7 +574,7 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
                 Path.of(optional(args, "renames").orElse("config/symbol-changes.csv")));
         BrokerSnapshot snapshot = PositionsFile.read(file, account, asOf, scope);
 
-        List<BreakRecord> found = new Reconciler(referenceData, renames)
+        List<BreakRecord> found = new Reconciler(referenceData, renames, rates)
                 .reconcile(projector.project(), snapshot);
 
         if (found.isEmpty()) {
@@ -578,6 +620,24 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
         out.line("recorded a " + ratio[0] + " for " + ratio[1] + " split of " + symbol
                 + " on " + on + ", sourced as manual");
         return OK;
+    }
+
+    /**
+     * Fetches exchange rates for the pairs named, so a foreign holding can be compared.
+     *
+     * <p>Explicit rather than automatic. Reconciliation reads rates and never fetches them,
+     * which keeps a reconcile reproducible and stops it spending quota or hanging on a
+     * provider that is down. When a break says a rate is missing, it names this command and
+     * the pair to run it with.
+     */
+    private int refreshFx(List<String> rest) {
+        if (rest.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "usage: basis refresh-fx EURUSD [GBPUSD ...]. Name the pairs a break asked for.");
+        }
+        FxRefreshService.RefreshReport report = fxRefresh.refresh(rest);
+        out.line(report.toString());
+        return report.isClean() ? OK : FAILED;
     }
 
     private int refreshSplits(List<String> rest) {
@@ -692,7 +752,7 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
     public static void printUsage(CliOutput out) {
         out.line("basis, a ledger that argues with your broker");
         out.blank();
-        out.line("  open <account> <symbol> <quantity> [--cost PRICE] --on yyyy-mm-dd");
+        out.line("  open <account> <symbol> <quantity> [--cost PRICE] [--currency CODE] --on yyyy-mm-dd");
         out.line("      state what an account already held before the imported history begins");
         out.line("  apply split|reverse-split <account> <symbol> <new:old> --on yyyy-mm-dd");
         out.line("      apply a corporate action the statements do not carry");
@@ -715,6 +775,8 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
         out.line("      compare a position snapshot against the ledger and record the disagreements");
         out.line("  cache-split <symbol> <new:old> --on yyyy-mm-dd");
         out.line("      record a split by hand, for when there is no key or the provider is wrong");
+        out.line("  refresh-fx <PAIR>...");
+        out.line("      fetch exchange rates, for a holding your broker reports in another currency");
         out.line("  refresh-splits [SYMBOL...]");
         out.line("      fetch split history, by default for whichever symbols need it most");
         out.line("  rebuild");
