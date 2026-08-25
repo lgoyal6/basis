@@ -48,6 +48,12 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 tasks.withType<Test>().configureEach {
+    // Passed through so the crash harness is genuinely tunable from the command line. Without
+    // this the property never reaches the test JVM, the harness quietly uses its default, and
+    // any instruction to raise it is untrue.
+    System.getProperty("basis.crash.iterations")
+        ?.let { systemProperty("basis.crash.iterations", it) }
+
     useJUnitPlatform {
         // -PexcludeTags=week3 drops the invariant 8 placeholder, which fails on purpose.
         // Useful for a CI gate; the default run keeps it red so the gap stays visible.
