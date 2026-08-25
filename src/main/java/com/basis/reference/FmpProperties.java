@@ -30,7 +30,7 @@ public record FmpProperties(
         key = key == null ? "" : key.trim();
         timeout = timeout == null ? Duration.ofSeconds(20) : timeout;
         refreshAfter = refreshAfter == null ? Duration.ofDays(7) : refreshAfter;
-        dailyRequestBudget = dailyRequestBudget <= 0 ? 50 : dailyRequestBudget;
+        dailyRequestBudget = dailyRequestBudget <= 0 ? 125 : dailyRequestBudget;
     }
 
     public boolean hasKey() {

@@ -34,9 +34,10 @@ basis:
     enabled: ${BASIS_FMP_ENABLED:false}
     timeout: 20s
     refresh-after: 7d
-    # A ceiling this application imposes, not one the provider communicates: it returns
-    # no rate limit headers. See docs/FEASIBILITY.md.
-    daily-request-budget: 50
+    # The free plan states 250 API calls per day, read off the dashboard because the API
+    # publishes no rate limit headers. Set to half of it so one refresh run cannot spend
+    # the whole allowance and leave nothing for a second attempt the same day.
+    daily-request-budget: 125
 
 # A command prints an answer and exits. Framework startup chatter around that answer is
 # noise, so the root logger is quiet and only basis speaks. Raise it when diagnosing:
