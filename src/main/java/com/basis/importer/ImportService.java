@@ -51,14 +51,17 @@ public class ImportService {
     private final ImportBatchRepository batches;
     private final LedgerRepository ledgerRepository;
     private final DerivedStateProjector projector;
+    private final com.basis.persistence.AccountLock accountLock;
 
     public ImportService(
             ImportBatchRepository batches,
             LedgerRepository ledgerRepository,
-            DerivedStateProjector projector) {
+            DerivedStateProjector projector,
+            com.basis.persistence.AccountLock accountLock) {
         this.batches = batches;
         this.ledgerRepository = ledgerRepository;
         this.projector = projector;
+        this.accountLock = accountLock;
     }
 
     /**
@@ -90,7 +93,11 @@ public class ImportService {
             events.addAll(fromRow);
         }
 
-        ImportReport report = record(events, rows.size(), file, profile);
+        // Held across hydration and writing, not just the writes. The race is that two
+        // importers read the same ledger state and each decides which lots a sale consumes
+        // from it, so a lock taken after hydration would protect nothing.
+        ImportReport report = accountLock.whileHolding(brokerAccount,
+                () -> record(events, rows.size(), file, profile));
         if (ignored == 0) {
             return report;
         }
@@ -119,7 +126,11 @@ public class ImportService {
      * command's own content rather than generated.
      */
     public ImportReport recordAsserted(LedgerEvent event, Path pseudoFile) {
-        return record(List.of(event), 1, pseudoFile, ASSERTED);
+        // Same lock as a statement import. An asserted corporate action restates every lot in
+        // a position, so running one while an import is consuming those lots is exactly the
+        // interleaving worth preventing.
+        return accountLock.whileHolding(event.account(),
+                () -> record(List.of(event), 1, pseudoFile, ASSERTED));
     }
 
     /**
