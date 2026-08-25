@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="509" viewBox="0 0 800 509" role="img" aria-label="basis finding and explaining a break">
+<rect width="100%" height="100%" rx="8" fill="#0d1117"/>
+<rect width="100%" height="30" rx="8" fill="#161b22"/><rect y="22" width="100%" height="8" fill="#161b22"/>
+<circle cx="20" cy="15" r="5.5" fill="#ff5f56"/>
+<circle cx="38" cy="15" r="5.5" fill="#ffbd2e"/>
+<circle cx="56" cy="15" r="5.5" fill="#27c93f"/>
+<text x="400" y="19" fill="#8b949e" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle">basis</text>
+<text x="22" y="46" fill="#7ee787" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" font-weight="600" xml:space="preserve">$ basis import fidelity Assets:Broker:Fidelity history.csv</text>
+<text x="22" y="67" fill="#8b949e" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" xml:space="preserve">2 row(s) read, 2 transaction(s) recorded, 0 already present</text>
+<text x="22" y="109" fill="#7ee787" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" font-weight="600" xml:space="preserve">$ basis reconcile Assets:Broker:Fidelity positions.csv --as-of 2026-03-31</text>
+<text x="22" y="151" fill="#f0f6fc" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" font-weight="600" xml:space="preserve">[1]  2026-03-31  Assets:Broker:Fidelity:AAPL  AAPL  QUANTITY_MISMATCH</text>
+<text x="22" y="172" fill="#c9d1d9" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" xml:space="preserve">  broker 40, computed 10</text>
+<text x="22" y="193" fill="#3fb950" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" xml:space="preserve">  UNAPPLIED_SPLIT (confirmed)</text>
+<text x="22" y="214" fill="#c9d1d9" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" xml:space="preserve">  The broker reports 4 for 1 of what basis computed, and AAPL had a</text>
+<text x="22" y="235" fill="#c9d1d9" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" xml:space="preserve">  4 for 1 split effective 2020-08-31 that this history never applied.</text>
+<text x="22" y="256" fill="#d29922" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" xml:space="preserve">  next: Apply the 4 for 1 split of AAPL dated 2020-08-31 and reconcile again.</text>
+<text x="22" y="277" fill="#58a6ff" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" font-weight="600" xml:space="preserve">  run:  basis apply break 1</text>
+<text x="22" y="319" fill="#8b949e" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" xml:space="preserve">1 break(s) recorded</text>
+<text x="22" y="361" fill="#7ee787" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" font-weight="600" xml:space="preserve">$ basis apply break 1</text>
+<text x="22" y="382" fill="#c9d1d9" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" xml:space="preserve">the 4 for 1 split of AAPL dated 2020-08-31 applied</text>
+<text x="22" y="403" fill="#c9d1d9" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" xml:space="preserve">break 1 settled as ACCEPTED. Reconcile again to confirm nothing is left.</text>
+<text x="22" y="445" fill="#7ee787" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" font-weight="600" xml:space="preserve">$ basis reconcile Assets:Broker:Fidelity positions.csv --as-of 2026-03-31</text>
+<text x="22" y="466" fill="#3fb950" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" xml:space="preserve">no breaks: 1 reported position(s) agree with the ledger</text>
+</svg>
