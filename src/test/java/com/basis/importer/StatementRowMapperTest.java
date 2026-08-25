@@ -119,7 +119,9 @@ class StatementRowMapperTest {
     void chargesGoToTheRightAccount() {
         assertThat(one(row("SERVICE FEE", "", "", "", "", "", "-7.50")))
                 .isInstanceOfSatisfying(Fee.class, fee -> {
-                    assertThat(fee.expenseAccount()).isEqualTo(LedgerAccounts.COMMISSIONS);
+                    assertThat(fee.expenseAccount())
+                            .as("a standalone charge is not the cost of executing a trade")
+                            .isEqualTo(LedgerAccounts.FEES);
                     assertThat(fee.amount().toMajorUnits()).isEqualByComparingTo("7.50");
                 });
 

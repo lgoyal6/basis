@@ -23,6 +23,17 @@ public final class LedgerAccounts {
     public static final Account COMMISSIONS = Account.of("Expenses:Commissions");
 
     /**
+     * Charges that are not the cost of executing a trade.
+     *
+     * <p>An account fee, an ADR fee, a short term redemption fee, margin interest. They
+     * arrive on their own statement rows rather than attached to a trade, and they are not
+     * commissions. Filing them under {@link #COMMISSIONS} would make the answer to "what
+     * did trading cost me" include charges that no trade caused, which is the same mistake
+     * as filing interest under dividends. See docs/ARCHITECTURE.md section 29.
+     */
+    public static final Account FEES = Account.of("Expenses:Fees");
+
+    /**
      * Where the unavoidable sub cent residue of a corporate action lands.
      *
      * <p>A split restates a lot's unit cost, and a unit cost has six decimal places. Over
