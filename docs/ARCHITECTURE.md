@@ -1295,3 +1295,29 @@ write arbitrary text into the metrics.
 
 The question being answered is whether this finds real errors, which is a question about how
 many and not about whose.
+
+### 30.6 The spin off that stayed a hint
+
+The plan asked for ambiguous spin offs as a break kind. They were built as one, with their own
+cause code, and the classifier was wrong within minutes of existing.
+
+The signature seemed clear: the broker reports a security the history never bought, and its
+quantity is a clean fraction per share of something already held. That is what a spin off looks
+like. It is also what a coincidence looks like. In the demo statement, 15 shares of one holding
+are exactly 0.75 per share of another it has no relationship to whatsoever, and the detector
+confidently reported a corporate action between them.
+
+Tightening the bounds does not fix it. Halves, quarters and three quarters turn up constantly
+between unrelated positions, and unlike a split there is no corporate action feed here to
+corroborate a candidate against. The ratio is arithmetic, and arithmetic is not evidence. This
+is section 15's lesson and the ratio detector's lesson, arrived at a third time from a
+different direction.
+
+So there is no `POSSIBLE_SPIN_OFF` code. The break stays `UNKNOWN_HOLDING`, which is what basis
+actually knows, and gains a sentence naming the candidate parent, the ratio, and the fact that
+the ratio proves nothing. The web layer turns that into a question where somebody can supply
+the basis fraction from the company's Form 8937, which is the only place that number exists.
+
+The alternative, keeping the code and calling it low confidence, was rejected because a cause
+code is what metrics group by. A count of spin offs found, most of them coincidences, is worse
+than no count.
