@@ -22,7 +22,7 @@ public class AverageCostNotPermittedException extends LotSelectionException {
         super(message);
     }
 
-    static AverageCostNotPermittedException of(Commodity commodity) {
+    public static AverageCostNotPermittedException of(Commodity commodity) {
         return new AverageCostNotPermittedException("average cost basis is not permitted for " + commodity
                 + " (" + commodity.commodityClass() + "). US rules allow it only for mutual fund shares and"
                 + " certain dividend reinvestment plans.");

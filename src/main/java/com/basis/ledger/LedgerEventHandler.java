@@ -10,6 +10,7 @@ import com.basis.domain.Money;
 import com.basis.domain.Posting;
 import com.basis.domain.Quantity;
 import com.basis.domain.Transaction;
+import com.basis.domain.event.AverageCostElection;
 import com.basis.domain.event.Buy;
 import com.basis.domain.event.CashDividend;
 import com.basis.domain.event.Fee;
@@ -21,6 +22,7 @@ import com.basis.domain.event.SpinOff;
 import com.basis.domain.event.Split;
 import com.basis.domain.event.StockDividend;
 import com.basis.domain.event.Transfer;
+import com.basis.ledger.lot.AverageCostNotPermittedException;
 import com.basis.ledger.lot.LotConsumption;
 import com.basis.ledger.lot.LotSelectionRequest;
 import com.basis.ledger.lot.LotSelectionStrategies;
@@ -53,6 +55,7 @@ public final class LedgerEventHandler {
                     restate(split, split.commodity(), split.numerator(), split.denominator(), lots);
             case StockDividend dividend -> restateForStockDividend(dividend, lots);
             case SpinOff spinOff -> allocate(spinOff, lots);
+            case AverageCostElection election -> electAverageCost(election, lots);
         };
     }
 
@@ -278,6 +281,31 @@ public final class LedgerEventHandler {
         TransactionBuilder builder = TransactionBuilder.forEvent(spinOff)
                 .narration("SpinOff " + spinOff.spunOff() + " from " + spinOff.parent() + ", "
                         + spinOff.parentBasisFraction().toPlainString() + " of basis allocated");
+        for (Posting posting : postings) {
+            builder.posting(posting);
+        }
+        return builder.plugAt(LedgerAccounts.ROUNDING, currencyOf(open));
+    }
+
+    /**
+     * Restates a holding to one pooled cost per share.
+     *
+     * <p>The eligibility check is the same one {@code AverageCostLotSelection} has always
+     * made, and it lives here too because this is now the way average cost is reached. US
+     * rules permit it only for mutual fund shares and certain dividend reinvestment plans,
+     * and no amount of a broker offering it makes an equity eligible.
+     */
+    private Transaction electAverageCost(AverageCostElection election, LotBook lots) {
+        if (!election.commodity().commodityClass().isAverageCostEligible()) {
+            throw AverageCostNotPermittedException.of(election.commodity());
+        }
+        Account holding = LedgerAccounts.holding(election.account(), election.commodity());
+        List<Lot> open = lots.openLots(holding, election.commodity());
+        List<Posting> postings =
+                Relotting.toPooledAverage(election, holding, election.commodity(), open);
+
+        TransactionBuilder builder = TransactionBuilder.forEvent(election)
+                .narration("Average cost elected for " + election.commodity());
         for (Posting posting : postings) {
             builder.posting(posting);
         }

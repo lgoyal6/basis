@@ -18,7 +18,8 @@ import java.time.LocalDate;
  * postings is the handler's job, and it is the only place that arithmetic happens.
  */
 public sealed interface LedgerEvent
-        permits Buy, Sell, CashDividend, StockDividend, Split, ReverseSplit, SpinOff, Fee, Transfer, OpeningBalance {
+        permits Buy, Sell, CashDividend, StockDividend, Split, ReverseSplit, SpinOff, Fee, Transfer,
+                OpeningBalance, AverageCostElection {
 
     /** Settlement or effective date, whichever the statement reported. */
     LocalDate date();
