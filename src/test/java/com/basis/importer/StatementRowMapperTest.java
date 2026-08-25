@@ -33,8 +33,10 @@ class StatementRowMapperTest {
     private static final Account EXTERNAL = Account.of("Assets:Bank:External");
     private static final LocalDate DATE = LocalDate.of(2026, 1, 15);
 
+    private static final BrokerProfile FIDELITY = BrokerProfiles.load("fidelity");
+
     private final StatementRowMapper mapper =
-            new StatementRowMapper(IBKR, EXTERNAL, SymbolMapping.empty(), "history.csv");
+            new StatementRowMapper(FIDELITY, IBKR, EXTERNAL, SymbolMapping.empty(), "history.csv");
 
     @Test
     @DisplayName("YOU BOUGHT becomes a purchase, with commission and fees charged together")
@@ -138,7 +140,7 @@ class StatementRowMapperTest {
     @Test
     @DisplayName("a renamed ticker is resolved at import, so the ledger has one position not two")
     void appliesRenamesAtImport() {
-        StatementRowMapper renaming = new StatementRowMapper(IBKR, EXTERNAL,
+        StatementRowMapper renaming = new StatementRowMapper(FIDELITY, IBKR, EXTERNAL,
                 SymbolMapping.of(List.of(new SymbolChange("FB", "META", LocalDate.of(2022, 6, 9), ""))),
                 "history.csv");
 
@@ -172,6 +174,7 @@ class StatementRowMapperTest {
                 .hasMessageContaining("history.csv row 1")
                 .hasMessageContaining("'BOND INTEREST ACCRUAL' is not recognised")
                 .hasMessageContaining("Nothing has been imported")
+                .hasMessageContaining("config/brokers")
                 .hasMessageContaining("YOU BOUGHT");
     }
 
@@ -187,10 +190,8 @@ class StatementRowMapperTest {
     @Test
     @DisplayName("the longer, more specific action phrase wins")
     void longestPrefixWins() {
-        assertThat(FidelityActions.classify("DIVIDEND REINVESTMENT AAPL"))
-                .contains(FidelityActions.Kind.REINVESTMENT);
-        assertThat(FidelityActions.classify("DIVIDEND RECEIVED AAPL"))
-                .contains(FidelityActions.Kind.CASH_DIVIDEND);
+        assertThat(FIDELITY.classify("DIVIDEND REINVESTMENT AAPL")).contains(ActionKind.REINVESTMENT);
+        assertThat(FIDELITY.classify("DIVIDEND RECEIVED AAPL")).contains(ActionKind.CASH_DIVIDEND);
     }
 
     private LedgerEvent one(StatementRow row) {

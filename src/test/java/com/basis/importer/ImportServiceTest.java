@@ -91,7 +91,7 @@ class ImportServiceTest {
     @Test
     @DisplayName("a statement becomes positions, lots and a realized gain")
     void importsAWholeStatement(@TempDir Path dir) throws Exception {
-        ImportReport report = importer.importFidelity(
+        ImportReport report = importFidelity(
                 write(dir, STATEMENT), IBKR, EXTERNAL, SymbolMapping.empty());
 
         assertThat(report.rowsRead()).isEqualTo(4);
@@ -117,7 +117,7 @@ class ImportServiceTest {
     @Test
     @DisplayName("the batch is committed, so nothing is left looking interrupted")
     void commitsItsBatch(@TempDir Path dir) throws Exception {
-        ImportReport report = importer.importFidelity(
+        ImportReport report = importFidelity(
                 write(dir, STATEMENT), IBKR, EXTERNAL, SymbolMapping.empty());
 
         assertThat(batches.isCommitted(report.batchId())).isTrue();
@@ -128,10 +128,10 @@ class ImportServiceTest {
     @DisplayName("importing the same file twice changes nothing the second time")
     void reimportingIsANoOp(@TempDir Path dir) throws Exception {
         Path file = write(dir, STATEMENT);
-        importer.importFidelity(file, IBKR, EXTERNAL, SymbolMapping.empty());
+        importFidelity(file, IBKR, EXTERNAL, SymbolMapping.empty());
         String hashAfterFirst = derived.hash();
 
-        ImportReport second = importer.importFidelity(file, IBKR, EXTERNAL, SymbolMapping.empty());
+        ImportReport second = importFidelity(file, IBKR, EXTERNAL, SymbolMapping.empty());
 
         assertThat(second.eventsRecorded()).isZero();
         assertThat(second.alreadyPresent()).isEqualTo(4);
@@ -144,14 +144,14 @@ class ImportServiceTest {
     @Test
     @DisplayName("a second statement continues from the first, consuming its lots")
     void laterStatementsSeeEarlierLots(@TempDir Path dir) throws Exception {
-        importer.importFidelity(write(dir, "first.csv", """
+        importFidelity(write(dir, "first.csv", """
                 Run Date,Action,Symbol,Quantity,Price ($),Commission ($),Amount ($)
                 01/15/2026,YOU BOUGHT,AAPL,10,150.00,0.00,-1500.00
                 """), IBKR, EXTERNAL, SymbolMapping.empty());
 
         // The sale is in a different file, imported by a different run, and has to find the
         // lot the purchase opened.
-        importer.importFidelity(write(dir, "second.csv", """
+        importFidelity(write(dir, "second.csv", """
                 Run Date,Action,Symbol,Quantity,Price ($),Commission ($),Amount ($)
                 03/01/2026,YOU SOLD,AAPL,-10,160.00,0.00,1600.00
                 """), IBKR, EXTERNAL, SymbolMapping.empty());
@@ -171,7 +171,7 @@ class ImportServiceTest {
                 02/01/2026,BOND INTEREST ACCRUAL,,,,12.34
                 """);
 
-        assertThatThrownBy(() -> importer.importFidelity(file, IBKR, EXTERNAL, SymbolMapping.empty()))
+        assertThatThrownBy(() -> importFidelity(file, IBKR, EXTERNAL, SymbolMapping.empty()))
                 .isInstanceOf(StatementFormatException.class)
                 .hasMessageContaining("BOND INTEREST ACCRUAL");
 
@@ -186,7 +186,7 @@ class ImportServiceTest {
     @Test
     @DisplayName("every posting written carries the statement line it came from, verbatim")
     void keepsTheSourceRow(@TempDir Path dir) throws Exception {
-        importer.importFidelity(write(dir, STATEMENT), IBKR, EXTERNAL, SymbolMapping.empty());
+        importFidelity(write(dir, STATEMENT), IBKR, EXTERNAL, SymbolMapping.empty());
 
         String sourceRow = db.sql("SELECT source_row::text FROM txn WHERE event_type = 'Buy'")
                 .query(String.class)
@@ -203,7 +203,7 @@ class ImportServiceTest {
     @Test
     @DisplayName("a reinvestment lands as income and shares, not as free shares")
     void importsAReinvestment(@TempDir Path dir) throws Exception {
-        importer.importFidelity(write(dir, """
+        importFidelity(write(dir, """
                 Run Date,Action,Symbol,Quantity,Price ($),Amount ($)
                 01/15/2026,YOU BOUGHT,AAPL,10,150.00,-1500.00
                 02/10/2026,REINVESTMENT,AAPL,0.16,150.00,-24.00
@@ -229,6 +229,12 @@ class ImportServiceTest {
         assertThat(batches.findInFlight())
                 .as("no import is ever left ambiguous")
                 .isEmpty();
+    }
+
+    /** Every import in this test uses the shipped Fidelity profile. */
+    private ImportReport importFidelity(
+            Path file, Account broker, Account external, SymbolMapping renames) {
+        return importer.importStatement(file, BrokerProfiles.load("fidelity"), broker, external, renames);
     }
 
     private static Path write(Path dir, String content) throws Exception {
