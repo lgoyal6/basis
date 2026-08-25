@@ -25,7 +25,8 @@ public class BasisApplication {
             BasisCli.printUsage(new com.basis.cli.CliOutput());
             System.exit(0);
         }
-        System.exit(SpringApplication.exit(SpringApplication.run(BasisApplication.class, args)));
+        String[] normalised = BasisCli.normaliseOptions(args);
+        System.exit(SpringApplication.exit(SpringApplication.run(BasisApplication.class, normalised)));
     }
 
     private static boolean wantsHelp(String[] args) {
