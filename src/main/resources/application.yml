@@ -39,6 +39,13 @@ spring:
 # Note that Spring does not read the .env file in this repository: that file exists for
 # the week 0 probe. Export it before running, for example:
 #   set -a; source .env; set +a
+# Behind Railway's proxy the app is reached over plain HTTP while the browser is on HTTPS.
+# Without this, Spring builds redirects from what it sees and sends an HTTPS visitor to an
+# http:// URL, which browsers downgrade or block and which stops a Secure cookie being sent
+# back. Only a real deploy shows this: on localhost the scheme it sees is the right one.
+server:
+  forward-headers-strategy: framework
+
 basis:
   # Only read under "basis serve". A public endpoint's limits are an operational decision
   # rather than a design one, so they live in config where they can be changed per deploy.
