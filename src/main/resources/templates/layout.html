@@ -6,6 +6,9 @@
   <title th:text="${title} + ' | basis'">basis</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9878;</text></svg>">
   <link rel="stylesheet" th:href="@{/basis.css}">
+  <!-- Vendored, not from a CDN. A page asking a stranger to upload their trading history
+       should not also be asking a third party to watch them do it. -->
+  <script th:src="@{/vendor/htmx.min.js}" defer></script>
 </head>
 <body>
   <header class="top">

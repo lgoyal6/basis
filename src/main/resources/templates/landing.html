@@ -29,19 +29,29 @@
   </div>
 
   <section class="card">
+    <!-- An ordinary form POST, deliberately. htmx could swap the result in, but the upload
+         is the one request whose failure has to render a full page with a message on it, and
+         a body swap against a redirect is a worse way to get there than a page load. htmx is
+         used on the results page, where an in-place update actually earns its keep. -->
     <form method="post" th:action="@{/check}" enctype="multipart/form-data" id="upload">
       <div class="field">
         <label for="history">Transaction history <span class="req">required</span></label>
         <p class="hint">The export with one row per buy, sell and dividend. At Fidelity:
           Activity &amp; Orders, then History, then Download.</p>
-        <input type="file" id="history" name="history" accept=".csv,text/csv" required>
+        <label class="drop" for="history">
+          <input type="file" id="history" name="history" accept=".csv,text/csv" required>
+          <span class="drop-hint">Choose a file, or drag one here</span>
+        </label>
       </div>
 
       <div class="field">
         <label for="positions">What your broker says you hold <span class="opt">optional</span></label>
         <p class="hint">Without this, basis shows what your history says you own. With it, basis
           can find breaks, which is the part worth doing.</p>
-        <input type="file" id="positions" name="positions" accept=".csv,text/csv">
+        <label class="drop" for="positions">
+          <input type="file" id="positions" name="positions" accept=".csv,text/csv">
+          <span class="drop-hint">Choose a file, or drag one here</span>
+        </label>
       </div>
 
       <div class="field inline">
@@ -57,8 +67,36 @@
         <button type="submit" class="primary">Check my positions</button>
         <a class="secondary" th:href="@{/demo}">See a demo instead</a>
       </div>
+
+      <!-- Named stages rather than a spinner. On a large history these take real time, and
+           "parsing 4,000 rows" is a different kind of waiting from "no idea what is
+           happening". Driven by htmx's request class, so it needs no script of its own. -->
+      <div id="working" class="working">
+        <span class="spin" aria-hidden="true"></span>
+        <span class="stages-live">
+          <b>Working.</b>
+          Parsing the statement, replaying it through the ledger, applying corporate actions,
+          then comparing against what your broker reported.
+        </span>
+      </div>
       <p class="tiny">Up to <span th:text="${limits.maxDescription()}">5 MB</span> per file.</p>
     </form>
+
+    <script>
+      // Reveals the stage list while the upload is in flight and stops a second submit.
+      // Six lines rather than a framework, because that is all this needs, and with scripts
+      // disabled the form still posts and still works.
+      (function () {
+        var form = document.getElementById('upload');
+        var working = document.getElementById('working');
+        if (!form || !working) return;
+        form.addEventListener('submit', function () {
+          working.classList.add('busy');
+          var button = form.querySelector('button[type=submit]');
+          if (button) { button.disabled = true; button.textContent = 'Working...'; }
+        });
+      })();
+    </script>
   </section>
 
   <section class="explain">
