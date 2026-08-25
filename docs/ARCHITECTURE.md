@@ -916,3 +916,92 @@ The failure mode is designed for that uncertainty. A row whose action is not rec
 the import and prints the exact text it did not understand along with the phrases it knows,
 so the first real statement tells you precisely which line to add and where. That is the
 intended way to finish a profile: not by reading a specification, but by running it.
+
+## 26. Closing the loop: the five events nothing could reach
+
+Reconciliation would find an unapplied split, confirm it against reference data, name the
+date, and print "apply the 4 for 1 split of AAPL dated 2020-08-31". There was no way to do
+that. `import` was the only door into the ledger, and it produced five of the eleven event
+types. Split, ReverseSplit, StockDividend, SpinOff and OpeningBalance were constructed
+nowhere outside tests.
+
+So the whole of the corporate actions work was correct, tested, and unreachable, and the
+product's headline finding was a dead end. That is the worst shape for an unfinished thing
+to be in: it looks complete right up until someone tries to act on its advice.
+
+### Asserted events
+
+Corporate actions and opening balances are now entered rather than parsed, through
+`basis open` and `basis apply`. They still go through an import batch, an idempotency key
+and a rebuild, because an event nobody can audit is worse than one nobody can enter.
+
+Entering them rather than reading them from a statement is deliberate. Transaction exports
+report corporate actions inconsistently and often not at all, and a split read wrongly
+restates every lot in a position. The reference data and a person are better authorities
+than a CSV column.
+
+For a statement row the verbatim line is the source row; for an assertion, the command is.
+Both answer the same question: where did this entry come from. And because the reference is
+derived from the command's own content, running it twice is a no op, so a nervous second
+`apply split` corrects nothing and duplicates nothing.
+
+### `apply break` does what the break said
+
+Given a confirmed break it re-derives the fix from reference data, applies it, and settles
+the break as accepted.
+
+Two refusals matter. It will not act on a **suspicion**: a ratio with nothing behind it is
+not grounds for restating every lot in a position, which is exactly the confident wrong move
+this project exists to avoid. And it re-derives the split from **reference data rather than
+from the break's sentence**, because the reference data is the authority on what happened and
+the break is a report about a disagreement.
+
+### Cash in lieu is two events, not a field
+
+A reverse split leaving a fraction is a restatement followed by the broker selling the piece
+nobody can hold. Section 19 predicted this would need a field on `ReverseSplit`. It did not:
+`apply reverse-split --cash-in-lieu` emits the split and then a `Sell` of the fraction the
+split produced, which is both simpler and closer to what happened. The disposal is real, and
+it is frequently the only taxable part of a corporate action that a statement never labels
+as one.
+
+### Average cost is an election, not a selection method
+
+The mandate listed average cost as a `LotSelectionStrategy`. Implementing it there is
+incoherent in a lot ledger: the disposal would weigh at a cost none of its lots carry while
+the remaining lots kept their originals, so the position's basis would drift from the sum of
+its parts on the first partial sale.
+
+It is an eleventh event instead, `AverageCostElection`, which restates every lot in the
+holding to one pooled cost per share and keeps every acquisition date, because averaging cost
+does not average holding periods. An ordinary FIFO sale afterwards is an average cost sale.
+The eligibility restriction is unchanged and enforced in both places: mutual funds and
+certain DRIP plans, never an equity.
+
+Adding an event to the sealed hierarchy was not done lightly. It is justified because average
+cost genuinely is a restatement, and a restatement has to be replayable, and only an event is.
+`EveryEventIsHandledTest` caught the addition before anything else did, which is what it was
+built for.
+
+### Resume is recover then re-import
+
+Section 9 deferred resume until a parser existed. Now that one does, resume needs no
+mechanism: rolling back an interrupted batch and importing the file again reaches the same
+place, because idempotency makes the second attempt skip whatever the first one wrote.
+Rollback is kept rather than dropped because a ledger missing a file is a safer state than one
+that is partly imported and looks complete.
+
+### Ignoring a row is configured, never silent
+
+Statements carry informational lines. `action.IGNORE` in a broker profile is where a phrase
+goes once someone has decided it means nothing to the ledger, and the import reports how many
+rows it ignored. Skipping an unrecognised row silently is the failure the importer is shaped
+to avoid; declaring that a row means nothing is a different act, and it leaves a record.
+
+### A break is a state, not a log entry
+
+Found by running the thing: reconciling twice left two identical open breaks, and reconciling
+weekly against an unfixed split would have left a pile. `reconcile` now replaces the open
+breaks for the account it reconciled, so a fixed holding stops having a break and an unfixed
+one keeps exactly one. Anything a person has accepted, rejected or resolved survives, which
+is the whole reason `break_record` is not derived state.
