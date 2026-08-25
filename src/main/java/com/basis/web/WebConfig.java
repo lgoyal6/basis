@@ -1,6 +1,5 @@
 package com.basis.web;
 
-import java.time.Clock;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,11 +17,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 @Profile("web")
 @EnableScheduling
 public class WebConfig {
-
-    @Bean
-    Clock clock() {
-        return Clock.systemUTC();
-    }
 
     /**
      * Limits on what a stranger can send.
