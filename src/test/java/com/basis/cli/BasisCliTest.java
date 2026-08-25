@@ -72,6 +72,9 @@ class BasisCliTest {
     @Autowired
     com.basis.persistence.StartupRecovery recovery;
 
+    @Autowired
+    com.basis.importer.ImportService importer;
+
     private ByteArrayOutputStream stdout;
     private BasisCli cli;
 
@@ -87,7 +90,7 @@ class BasisCliTest {
         CliOutput out = new CliOutput(
                 new PrintStream(stdout, true, StandardCharsets.UTF_8),
                 new PrintStream(stdout, true, StandardCharsets.UTF_8));
-        cli = new BasisCli(projector, derived, breaks, referenceData, refresh, recovery, out);
+        cli = new BasisCli(projector, derived, breaks, referenceData, refresh, recovery, importer, out);
     }
 
     private int run(String... args) {
@@ -118,6 +121,7 @@ class BasisCliTest {
     void statusOnAnEmptyLedger() {
         assertThat(run("status")).isEqualTo(BasisCli.OK);
         assertThat(printed())
+                .contains("HOLDINGS")
                 .contains("Nothing has been imported yet")
                 .contains("0 open")
                 .contains("0 symbols with split history");
@@ -241,6 +245,37 @@ class BasisCliTest {
 
         assertThat(run("rebuild")).isEqualTo(BasisCli.OK);
         assertThat(printed()).contains("rebuilt: 2 positions, 1 lots").contains("hash: ");
+    }
+
+    @Test
+    @DisplayName("import reads a Fidelity statement, and re importing it changes nothing")
+    void importsAFidelityStatement(@TempDir Path dir) throws Exception {
+        Path statement = write(dir, "history.csv", """
+                Run Date,Action,Symbol,Description,Quantity,Price ($),Commission ($),Amount ($)
+                01/05/2026,ELECTRONIC FUNDS TRANSFER RECEIVED,,CONTRIBUTION,,,,10000.00
+                01/15/2026,YOU BOUGHT,AAPL,"APPLE INC, COM",10,150.00,1.00,-1501.00
+                """);
+
+        assertThat(run("import", "fidelity", "Assets:Broker:Fidelity", statement.toString()))
+                .isEqualTo(BasisCli.OK);
+        assertThat(printed()).contains("2 row(s) read, 2 transaction(s) recorded");
+
+        reset0();
+        assertThat(run("import", "fidelity", "Assets:Broker:Fidelity", statement.toString()))
+                .isEqualTo(BasisCli.OK);
+        assertThat(printed())
+                .as("overlapping statements are the normal way to use this")
+                .contains("0 transaction(s) recorded, 2 already present");
+    }
+
+    @Test
+    @DisplayName("an unknown statement format is refused rather than guessed at")
+    void refusesAnUnknownFormat(@TempDir Path dir) throws Exception {
+        Path statement = write(dir, "history.csv", "anything\n");
+
+        assertThat(run("import", "schwab", "Assets:Broker:Schwab", statement.toString()))
+                .isEqualTo(BasisCli.USAGE);
+        assertThat(printed()).contains("Only fidelity is supported");
     }
 
     @Test

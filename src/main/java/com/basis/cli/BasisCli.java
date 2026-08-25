@@ -1,6 +1,8 @@
 package com.basis.cli;
 
 import com.basis.domain.Account;
+import com.basis.importer.ImportReport;
+import com.basis.importer.ImportService;
 import com.basis.ledger.LedgerState;
 import com.basis.ledger.PositionKey;
 import com.basis.persistence.BreakRecordRepository;
@@ -55,6 +57,7 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
     private final ReferenceDataRepository referenceData;
     private final SplitRefreshService refresh;
     private final StartupRecovery recovery;
+    private final ImportService importer;
     private final CliOutput out;
 
     private int exitCode = OK;
@@ -66,6 +69,7 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
             ReferenceDataRepository referenceData,
             SplitRefreshService refresh,
             StartupRecovery recovery,
+            ImportService importer,
             CliOutput out) {
         this.projector = projector;
         this.derived = derived;
@@ -73,6 +77,7 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
         this.referenceData = referenceData;
         this.refresh = refresh;
         this.recovery = recovery;
+        this.importer = importer;
         this.out = out;
     }
 
@@ -102,6 +107,7 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
 
     private int dispatch(String command, List<String> rest, ApplicationArguments args) {
         return switch (command) {
+            case "import" -> importStatement(rest, args);
             case "status" -> status();
             case "breaks" -> listBreaks(rest);
             case "settle" -> settle(rest, args);
@@ -117,16 +123,50 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
         };
     }
 
+    /**
+     * Reads a broker statement into the ledger.
+     *
+     * <p>Fidelity only, for now. The format is named on the command line rather than sniffed
+     * from the file, because guessing which broker produced a CSV and guessing wrong means
+     * importing a column of prices as quantities.
+     */
+    private int importStatement(List<String> rest, ApplicationArguments args) {
+        String format = requireArg(rest, 0, "import <format> <account> <statement.csv> [--external ACCOUNT]");
+        Account account = Account.of(requireArg(rest, 1,
+                "import <format> <account> <statement.csv> [--external ACCOUNT]"));
+        Path file = Path.of(requireArg(rest, 2,
+                "import <format> <account> <statement.csv> [--external ACCOUNT]"));
+
+        if (!format.equalsIgnoreCase("fidelity")) {
+            throw new IllegalArgumentException("unknown statement format '" + format
+                    + "'. Only fidelity is supported so far.");
+        }
+        Account external = Account.of(optional(args, "external").orElse("Assets:Bank:External"));
+        SymbolMapping renames = SymbolMappingFile.load(
+                Path.of(optional(args, "renames").orElse("config/symbol-changes.csv")));
+
+        ImportReport report = importer.importFidelity(file, account, external, renames);
+        out.line(report.toString());
+        for (String note : report.notes()) {
+            out.line("  " + note);
+        }
+        return OK;
+    }
+
     /** What the ledger currently believes, and how much of it is unexplained. */
     private int status() {
-        out.heading("positions");
         LedgerState state = projector.project();
+        // Split rather than listed together. Every account in a double entry ledger holds a
+        // position, including the income and expense accounts, so an undivided list opens
+        // with "Income:Dividends:AAPL -24 USD" and buries what someone actually owns.
+        out.heading("holdings");
         if (state.positions().isEmpty()) {
             out.line("  none. Nothing has been imported yet.");
         }
-        for (Map.Entry<PositionKey, com.basis.domain.Quantity> entry : state.positions().entrySet()) {
-            out.line("  " + entry.getKey().account() + "  " + entry.getValue() + " " + entry.getKey().commodity());
-        }
+        printPositions(state, true);
+
+        out.heading("contra accounts");
+        printPositions(state, false);
 
         out.heading("derived state");
         out.line("  " + derived.countPositions() + " positions, " + derived.countLots() + " lots, "
@@ -147,6 +187,22 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
             out.line("  could not be checked: " + String.join(", ", unavailable));
         }
         return OK;
+    }
+
+    /** @param holdings true for the asset side, false for the income, expense and equity side */
+    private void printPositions(LedgerState state, boolean holdings) {
+        boolean printed = false;
+        for (Map.Entry<PositionKey, com.basis.domain.Quantity> entry : state.positions().entrySet()) {
+            boolean isAsset = entry.getKey().account().type() == com.basis.domain.AccountType.ASSETS;
+            if (isAsset != holdings) {
+                continue;
+            }
+            out.line("  " + entry.getKey().account() + "  " + entry.getValue() + " " + entry.getKey().commodity());
+            printed = true;
+        }
+        if (!printed && !holdings) {
+            out.line("  none");
+        }
     }
 
     private int listBreaks(List<String> rest) {
@@ -295,6 +351,8 @@ public class BasisCli implements ApplicationRunner, org.springframework.boot.Exi
     public static void printUsage(CliOutput out) {
         out.line("basis, a ledger that argues with your broker");
         out.blank();
+        out.line("  import fidelity <account> <statement.csv> [--external ACCOUNT]");
+        out.line("      read a broker statement into the ledger");
         out.line("  status");
         out.line("      positions, derived state, open breaks and how current the reference data is");
         out.line("  breaks <account>");

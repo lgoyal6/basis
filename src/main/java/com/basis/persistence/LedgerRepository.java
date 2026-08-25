@@ -114,6 +114,22 @@ public class LedgerRepository {
                 .list();
     }
 
+    /**
+     * Whether this transaction is already in the ledger.
+     *
+     * <p>Asked before an event is replayed, not after. Recording an already imported
+     * purchase into a hydrated ledger would try to open a lot that is already open, and the
+     * ledger would refuse it before the database ever got the chance to say "seen this one".
+     * The unique constraint on the key is still there as the last word; this is what stops
+     * the ordinary case of overlapping statements from ever reaching it.
+     */
+    public boolean exists(com.basis.domain.IdempotencyKey key) {
+        return db.sql("SELECT EXISTS (SELECT 1 FROM txn WHERE idempotency_key = :key)")
+                .param("key", key.bytes())
+                .query(Boolean.class)
+                .single();
+    }
+
     public int countTransactions() {
         return db.sql("SELECT count(*) FROM txn").query(Integer.class).single();
     }

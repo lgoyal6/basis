@@ -12,7 +12,23 @@ import com.basis.domain.event.LedgerEvent;
 public final class Ledger {
 
     private final LedgerEventHandler handler = new LedgerEventHandler();
-    private final LedgerState state = new LedgerState();
+    private final LedgerState state;
+
+    /** A ledger with no history behind it. */
+    public Ledger() {
+        this(new LedgerState());
+    }
+
+    /**
+     * A ledger continuing from state already built, so a sale in today's statement can
+     * consume lots that a purchase opened in one imported months ago.
+     *
+     * <p>Takes ownership of the state rather than copying it. The caller is expected to hand
+     * over a freshly projected one and not keep using it.
+     */
+    public Ledger(LedgerState opening) {
+        this.state = opening;
+    }
 
     /** Handles the event, verifies it balances, and applies it. */
     public Transaction record(LedgerEvent event) {
