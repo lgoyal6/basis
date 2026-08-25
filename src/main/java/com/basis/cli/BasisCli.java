@@ -60,6 +60,10 @@ import org.springframework.stereotype.Component;
  * </ul>
  */
 @Component
+// Not loaded when serving. The web profile has no command to run and no exit code to
+// generate, and an ApplicationRunner that ran on server startup would try to parse the
+// servlet arguments as a basis command.
+@org.springframework.context.annotation.Profile("!web")
 public class BasisCli implements ApplicationRunner, org.springframework.boot.ExitCodeGenerator {
 
     /**
