@@ -9,6 +9,7 @@ import com.basis.domain.Quantity;
 import com.basis.domain.event.Buy;
 import com.basis.domain.event.CashDividend;
 import com.basis.domain.event.Fee;
+import com.basis.domain.event.InterestEarned;
 import com.basis.domain.event.LedgerEvent;
 import com.basis.domain.event.Sell;
 import com.basis.domain.event.Transfer;
@@ -78,6 +79,7 @@ public final class StatementRowMapper {
             case SELL -> List.of(sell(row));
             case CASH_DIVIDEND -> List.of(dividend(row));
             case REINVESTMENT -> reinvestment(row);
+            case INTEREST -> List.of(interest(row));
             case FEE -> List.of(fee(row, LedgerAccounts.COMMISSIONS));
             case WITHHOLDING -> List.of(fee(row, LedgerAccounts.WITHHOLDING_TAX));
             case CASH_TRANSFER -> List.of(cashTransfer(row));
@@ -128,6 +130,25 @@ public final class StatementRowMapper {
         events.add(new Buy(row.date(), brokerAccount, reference(row) + ":buy", row.asJson(source),
                 commodity(row), shares, unitPrice, Money.zero(USD)));
         return List.copyOf(events);
+    }
+
+    /**
+     * Interest credited, which unlike a dividend names no security.
+     *
+     * <p>The symbol column on one of these rows is usually blank, and where it is not it
+     * names the cash sweep the interest was calculated on rather than a holding that paid
+     * it. Either way there is nothing to attribute the income to, which is exactly why this
+     * is its own event.
+     */
+    private LedgerEvent interest(StatementRow row) {
+        Money gross = money(row.amountOrZero().abs(), row);
+        if (!gross.isPositive()) {
+            throw new StatementFormatException(row.location(source)
+                    + ": interest of " + gross + " is not income. Interest charged is a fee,"
+                    + " and belongs on a profile line that maps to FEE.");
+        }
+        return new InterestEarned(row.date(), brokerAccount, reference(row), row.asJson(source),
+                gross, Money.zero(USD));
     }
 
     private LedgerEvent fee(StatementRow row, Account expenseAccount) {
