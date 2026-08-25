@@ -52,16 +52,19 @@ public class ImportService {
     private final LedgerRepository ledgerRepository;
     private final DerivedStateProjector projector;
     private final com.basis.persistence.AccountLock accountLock;
+    private final ImportInterruption interruption;
 
     public ImportService(
             ImportBatchRepository batches,
             LedgerRepository ledgerRepository,
             DerivedStateProjector projector,
-            com.basis.persistence.AccountLock accountLock) {
+            com.basis.persistence.AccountLock accountLock,
+            ImportInterruption interruption) {
         this.batches = batches;
         this.ledgerRepository = ledgerRepository;
         this.projector = projector;
         this.accountLock = accountLock;
+        this.interruption = interruption;
     }
 
     /**
@@ -173,6 +176,9 @@ public class ImportService {
                 Transaction transaction = ledger.record(event);
                 if (ledgerRepository.append(batchId, transaction)) {
                     recorded++;
+                    // Does nothing in production. The fault injection harness throws here to
+                    // leave a batch part written, which is what a killed process leaves.
+                    interruption.afterAppend(recorded);
                 } else {
                     alreadyPresent++;
                 }
