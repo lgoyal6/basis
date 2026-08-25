@@ -19,7 +19,7 @@ import java.time.LocalDate;
  */
 public sealed interface LedgerEvent
         permits Buy, Sell, CashDividend, StockDividend, Split, ReverseSplit, SpinOff, Fee, Transfer,
-                OpeningBalance, AverageCostElection {
+                OpeningBalance, AverageCostElection, InterestEarned {
 
     /** Settlement or effective date, whichever the statement reported. */
     LocalDate date();

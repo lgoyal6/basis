@@ -18,6 +18,7 @@ import com.basis.domain.event.AverageCostElection;
 import com.basis.domain.event.Buy;
 import com.basis.domain.event.CashDividend;
 import com.basis.domain.event.Fee;
+import com.basis.domain.event.InterestEarned;
 import com.basis.domain.event.LedgerEvent;
 import com.basis.domain.event.OpeningBalance;
 import com.basis.domain.event.ReverseSplit;
@@ -84,15 +85,17 @@ class EveryEventIsHandledTest {
         }
 
         // Opening 100000, buy 100 AAPL at 10.00 plus 1.00, buy 100 VTSAX at 10.00,
-        // dividend 40.00 less 6.00 withheld, sell 50 at 30.00 less 2.00, fee 7.50, and
-        // 250.00 transferred out to Schwab. The corporate actions settle no cash at all.
+        // dividend 40.00 less 6.00 withheld, sell 50 at 30.00 less 2.00, fee 7.50,
+        // 250.00 transferred out to Schwab, and interest of 12.00 less 2.00 withheld.
+        // The corporate actions settle no cash at all.
         Money expected = usd("100000.00")
                 .minus(usd("1001.00"))
                 .minus(usd("1000.00"))
                 .plus(usd("34.00"))
                 .plus(usd("1498.00"))
                 .minus(usd("7.50"))
-                .minus(usd("250.00"));
+                .minus(usd("250.00"))
+                .plus(usd("10.00"));
 
         assertThat(ledger.state().cash(LedgerAccounts.cash(IBKR), USD)).isEqualTo(expected);
         assertThat(ledger.state().cash(LedgerAccounts.cash(SCHWAB), USD)).isEqualTo(usd("250.00"));
@@ -129,6 +132,9 @@ class EveryEventIsHandledTest {
         // Permitted for a fund and for nothing else, so the fund bought above is what makes
         // this event reachable at all.
         events.add(new AverageCostElection(JAN_15.plusDays(10), broker, "e11", row("e11"), VTSAX));
+        // Names no security, which is the whole reason it is not a CashDividend.
+        events.add(new InterestEarned(JAN_15.plusDays(11), broker, "e12", row("e12"),
+                usd("12.00"), usd("2.00")));
         return events;
     }
 
