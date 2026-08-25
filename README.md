@@ -33,9 +33,12 @@ Week 4. Ledger core, distributions, transfers, corporate actions, reconciliation
 - A statement importer driven by per-broker config files, so a new broker costs a
   properties file rather than code
 
-Every event the ledger declares is now handled. Still to come: cash in lieu of
-fractional shares, and real exports to validate the shipped broker profiles against.
-No web layer.
+- Commands to enter corporate actions and opening balances, and to apply a break's
+  own suggestion
+
+Every event the ledger declares is handled and reachable. What is left is validation
+against real broker exports, and the free tier request limit, which the market data
+provider does not publish through its API. No web layer.
 
 ### How reconciliation works
 
@@ -115,15 +118,38 @@ Import a statement, then reconcile a position snapshot against it:
 export BASIS_DB_URL=jdbc:postgresql://localhost:5432/basis
 export BASIS_DB_USER=basis BASIS_DB_PASSWORD=basis
 
-java -jar build/libs/basis.jar import fidelity Assets:Broker:Fidelity history.csv
-java -jar build/libs/basis.jar status
-java -jar build/libs/basis.jar reconcile Assets:Broker:Fidelity positions.csv --as-of 2026-03-31
-java -jar build/libs/basis.jar breaks Assets:Broker:Fidelity
-java -jar build/libs/basis.jar settle 1 --accept --note "applied the split"
+basis="java -jar build/libs/basis.jar"
+
+# what you held before your oldest statement
+$basis open Assets:Broker:Fidelity AAPL 100 --cost 90.00 --on 2015-03-12
+
+# the statements themselves
+$basis import fidelity Assets:Broker:Fidelity history.csv
+
+# what the broker says you hold now
+$basis reconcile Assets:Broker:Fidelity positions.csv --as-of 2026-03-31
+
+# basis finds a 4 for 1 ratio, confirms it against the split history, and says
+# which split you never applied. do what it said, then check nothing is left:
+$basis apply break 1
+$basis reconcile Assets:Broker:Fidelity positions.csv --as-of 2026-03-31
 ```
 
 Exit codes: `0` ok, `1` failed, `2` bad usage, `3` reconcile found breaks. The last
 one is deliberately not a failure, so a pipeline can act on a disagreement.
+
+Corporate actions are entered rather than parsed, because transaction exports report
+them inconsistently and a split read wrongly restates every lot in a position:
+
+```
+basis apply split         <account> AAPL 4:1 --on 2020-08-31
+basis apply reverse-split <account> XYZ 1:8 --on 2026-02-20 --cash-in-lieu 12.34
+basis apply stock-dividend <account> KO 2.5 --on 2026-03-01
+basis apply spin-off      <account> PARENT CHILD 0.5 0.30 --on 2026-04-01
+basis apply average-cost  <account> VTSAX --on 2026-01-01   # funds only
+```
+
+Running any of them twice is a no op, so a nervous second attempt is safe.
 
 ### Adding your broker
 
