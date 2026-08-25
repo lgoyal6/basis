@@ -237,6 +237,18 @@ public final class LedgerState implements LotBook {
     }
 
     /** Total basis still held in a holding: the sum over open lots of quantity times unit cost. */
+    /**
+     * The open cost basis in one currency, counting only the lots actually held in it.
+     *
+     * <p>Lots in other currencies are skipped rather than converted, because converting here
+     * would mean this method choosing an exchange rate and a date, and a ledger does not get
+     * to invent either. The caller has to know that: asking for USD when the holding was
+     * bought in GBP returns zero, which is true and useless.
+     *
+     * <p>Prefer {@link #openBasisByCurrency} for anything that compares against an outside
+     * number. Reading a zero from here as "the basis is nothing" is how a foreign holding
+     * turns into a large false break with a confident explanation attached.
+     */
     public Money openBasis(Account account, Commodity commodity, Currency currency) {
         Money total = Money.zero(currency);
         for (Lot lot : openLots(account, commodity)) {
@@ -245,5 +257,25 @@ public final class LedgerState implements LotBook {
             }
         }
         return total;
+    }
+
+    /**
+     * Every currency this holding was bought in, and the open basis in each.
+     *
+     * <p>A holding acquired in two currencies has two costs and no single answer, and this
+     * says so instead of picking one. Reconciliation needs the whole picture to tell three
+     * cases apart: the broker's currency matches, it does not match but a rate exists, or it
+     * does not match and nothing can honestly be compared.
+     *
+     * <p>Ordered, so the same holding produces the same answer twice, which replay
+     * determinism depends on.
+     */
+    public java.util.Map<Currency, Money> openBasisByCurrency(Account account, Commodity commodity) {
+        java.util.Map<Currency, Money> byCurrency = new java.util.LinkedHashMap<>();
+        for (Lot lot : openLots(account, commodity)) {
+            Currency currency = lot.unitCost().currency();
+            byCurrency.merge(currency, lot.remainingBasis(), Money::plus);
+        }
+        return java.util.Collections.unmodifiableMap(byCurrency);
     }
 }
