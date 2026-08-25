@@ -21,6 +21,22 @@ That is real output, and the split history behind it is real: Apple did split 4 
 
 ## Try it
 
+Two ways, depending on whether you want to install anything.
+
+**In a browser, with no account.** `basis serve` runs a web app whose whole flow is upload a
+statement, see your breaks, leave. No signup, no email, no broker login. Your file is held in
+memory for two hours and deleted the moment you ask, and it is never written to a database:
+see [PRIVACY.md](PRIVACY.md) for why that distinction is the point rather than a detail.
+
+```bash
+docker compose up -d
+./gradlew bootJar
+java -jar build/libs/basis.jar serve     # then open http://localhost:8080
+```
+
+There is a "See a demo" button that needs no file and no API key. It shows a break basis can
+prove, one it refuses to guess at, and one that is simply missing history.
+
 **[See a recorded session](https://lgoyal6.github.io/basis/)** if you would rather watch than
 run. It is a real run of the script below, captured from the binary, replayed step by step.
 The page is a recording and not a running instance: there is no web layer, and a second
@@ -202,6 +218,7 @@ basis --help
 | `cache-split <symbol> <new:old> --on DATE` | record a split by hand, no provider needed |
 | `rebuild` | truncate derived state and replay it from the postings |
 | `recover` | resolve an import batch that was interrupted |
+| `serve` | run the web app: upload a statement, see breaks, no account |
 
 Corporate actions are entered rather than parsed, because transaction exports report them
 inconsistently and a split read wrongly restates every lot in a position:
