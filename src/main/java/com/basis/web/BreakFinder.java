@@ -50,6 +50,9 @@ import org.springframework.stereotype.Service;
  * the ledger would say now.
  */
 @Service
+// Web only. Scanned into a CLI context these would demand beans the web profile
+// provides, which is how adding the web layer broke every Spring test at once.
+@org.springframework.context.annotation.Profile("web")
 public class BreakFinder {
 
     /** Where money arriving from outside the brokerage comes from. Same default as the CLI. */

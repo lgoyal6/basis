@@ -24,6 +24,9 @@ import org.springframework.web.multipart.MultipartFile;
  * that simply has no transactions in it.
  */
 @Component
+// Web only. Scanned into a CLI context these would demand beans the web profile
+// provides, which is how adding the web layer broke every Spring test at once.
+@org.springframework.context.annotation.Profile("web")
 public class UploadReader {
 
     private final WebConfig.Limits limits;

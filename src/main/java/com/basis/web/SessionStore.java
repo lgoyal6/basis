@@ -30,6 +30,9 @@ import org.springframework.stereotype.Component;
  * expires rather than whenever the sweeper next runs.
  */
 @Component
+// Web only. Scanned into a CLI context these would demand beans the web profile
+// provides, which is how adding the web layer broke every Spring test at once.
+@org.springframework.context.annotation.Profile("web")
 public class SessionStore {
 
     /** Long enough to read a break list and act on it, short enough not to be storage. */

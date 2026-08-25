@@ -23,6 +23,9 @@ import org.springframework.stereotype.Component;
  * into a number that flatters itself.
  */
 @Component
+// Web only. Scanned into a CLI context these would demand beans the web profile
+// provides, which is how adding the web layer broke every Spring test at once.
+@org.springframework.context.annotation.Profile("web")
 public class Usage {
 
     private final Map<String, AtomicLong> counters = new ConcurrentHashMap<>();
