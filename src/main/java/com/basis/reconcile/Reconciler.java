@@ -1,11 +1,14 @@
 package com.basis.reconcile;
 
+import com.basis.domain.Account;
 import com.basis.domain.Lot;
 import com.basis.domain.Money;
 import com.basis.domain.Quantity;
 import com.basis.ledger.LedgerState;
 import com.basis.ledger.PositionKey;
 import com.basis.reference.SymbolMapping;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -163,7 +166,7 @@ public final class Reconciler {
 
         if (!broker.equals(computed)) {
             if (!computed.isPositive()) {
-                return Optional.of(unknownToLedger(asOf, key, broker));
+                return Optional.of(unknownToLedger(state, asOf, key, broker));
             }
             return Optional.of(quantityMismatch(state, asOf, key, broker, computed));
         }
@@ -290,14 +293,92 @@ public final class Reconciler {
                 BreakStatus.OPEN));
     }
 
-    private BreakRecord unknownToLedger(LocalDate asOf, PositionKey key, Quantity broker) {
+    /**
+     * Whether an unexplained holding happens to be a clean fraction per share of something
+     * held, which is the shape a spin off has.
+     *
+     * <p>Returns a sentence to add, never a classification. That distinction is the whole
+     * lesson here, and it was learned the hard way twice. The first version of this returned
+     * its own cause code and displaced {@code UNKNOWN_HOLDING}, and it immediately explained
+     * a coincidence as a corporate action: in the demo, 15 shares of one holding are exactly
+     * 0.75 per share of another it has nothing to do with.
+     *
+     * <p>A quantity ratio genuinely cannot tell a spin off from a purchase nobody exported.
+     * Ratios like a half, a quarter or three quarters turn up constantly between unrelated
+     * positions, and there is no corporate action feed here to corroborate one, so the
+     * arithmetic is arithmetic. The same conclusion the split ratio detector reached: without
+     * evidence, say what you noticed and let the person decide.
+     *
+     * <p>So the break stays an unknown holding and gains a sentence naming the candidate
+     * parent and the ratio. The web layer turns that into a choice where somebody can supply
+     * the basis fraction from the company's Form 8937, which is the only place that number
+     * exists.
+     */
+    private static Optional<String> spinOffHint(
+            LedgerState state, PositionKey key, Quantity broker) {
+
+        if (key.commodity().isCash() || !broker.isPositive()) {
+            return Optional.empty();
+        }
+        String accountRoot = parentAccountRoot(key.account());
+        for (Lot lot : state.allLots()) {
+            if (lot.commodity().equals(key.commodity())
+                    || !lot.account().name().startsWith(accountRoot)) {
+                continue;
+            }
+            Quantity parentHeld = state.position(lot.account(), lot.commodity());
+            if (!parentHeld.isPositive()) {
+                continue;
+            }
+            Optional<BigDecimal> perShare = distributionRatio(broker, parentHeld);
+            if (perShare.isPresent()) {
+                return Optional.of(" It is also exactly " + perShare.get().toPlainString()
+                        + " per share of the " + parentHeld + " " + lot.commodity()
+                        + " already held, so if " + lot.commodity() + " spun off "
+                        + key.commodity() + ", apply the spin off with the basis fraction from"
+                        + " the company's Form 8937. That ratio on its own is not evidence:"
+                        + " unrelated holdings divide cleanly all the time, and basis will not"
+                        + " guess which of the two happened.");
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * The per parent share distribution, if it terminates at all.
+     *
+     * <p>Bounded to the range a real distribution falls in, and required to reproduce the
+     * child quantity exactly. Neither test makes this evidence, which is why the caller only
+     * ever produces a sentence.
+     */
+    private static Optional<BigDecimal> distributionRatio(Quantity child, Quantity parent) {
+        BigDecimal ratio = child.value().divide(parent.value(), 6, RoundingMode.HALF_EVEN);
+        if (ratio.compareTo(new BigDecimal("0.01")) < 0 || ratio.compareTo(new BigDecimal("5")) > 0) {
+            return Optional.empty();
+        }
+        if (parent.value().multiply(ratio).compareTo(child.value()) != 0) {
+            return Optional.empty();
+        }
+        return Optional.of(ratio.stripTrailingZeros());
+    }
+
+    /** The broker root, so a candidate parent is only looked for in the same account. */
+    private static String parentAccountRoot(Account holdingAccount) {
+        String name = holdingAccount.name();
+        int lastSegment = name.lastIndexOf(':');
+        return lastSegment < 0 ? name : name.substring(0, lastSegment);
+    }
+
+    private BreakRecord unknownToLedger(
+            LedgerState state, LocalDate asOf, PositionKey key, Quantity broker) {
+        String hint = spinOffHint(state, key, broker).orElse("");
         return new BreakRecord(asOf, key.account(), key.commodity(), BreakType.UNKNOWN_TO_LEDGER,
                 broker, Quantity.ZERO, null, null,
                 ProbableCause.suspected(ProbableCause.UNKNOWN_HOLDING,
                         "The broker reports " + broker + " " + key.commodity()
                                 + " and the imported history contains no acquisition of it at all.",
                         "The statement covering the purchase is probably missing, or this security was"
-                                + " renamed and the mapping file does not know about it yet."),
+                                + " renamed and the mapping file does not know about it yet." + hint),
                 BreakStatus.OPEN);
     }
 

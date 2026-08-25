@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page('Numbers', ~{::main})}">
+<main>
+  <section class="summary">
+    <h1>
+      <span th:text="${breaksFound}">0</span> break<span th:if="${breaksFound != 1}">s</span>
+      found across <span th:text="${accounts}">0</span> upload<span th:if="${accounts != 1}">s</span>.
+    </h1>
+    <p class="lede">Real uploads only. Demo sessions are counted separately below and never
+      added in, because seeded data proving the classifier works is not the same claim as
+      errors found in somebody's actual account.</p>
+    <p class="meta"><span th:text="${held}">0</span> upload(s) currently held in memory</p>
+  </section>
+
+  <section>
+    <h2>Real sessions</h2>
+    <table th:if="${!real.isEmpty()}">
+      <thead><tr><th>Counter</th><th class="num">Count</th></tr></thead>
+      <tbody>
+        <tr th:each="e : ${real}">
+          <td><code th:text="${e.key}">uploads.parsed</code></td>
+          <td class="num" th:text="${e.value}">0</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="lede" th:if="${real.isEmpty()}">Nothing yet. Nobody has uploaded anything since
+      this instance started.</p>
+  </section>
+
+  <section>
+    <h2>Demo sessions</h2>
+    <table th:if="${!demo.isEmpty()}">
+      <thead><tr><th>Counter</th><th class="num">Count</th></tr></thead>
+      <tbody>
+        <tr th:each="e : ${demo}">
+          <td><code th:text="${e.key}">uploads.parsed</code></td>
+          <td class="num" th:text="${e.value}">0</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="lede" th:if="${demo.isEmpty()}">Nobody has clicked the demo yet.</p>
+  </section>
+
+  <section class="prose">
+    <h2>What is not here</h2>
+    <p>No symbols, no quantities, no dates, no filenames, no addresses. Counter names come from
+      a fixed vocabulary, so an upload cannot cause arbitrary text to be recorded. These are
+      counts by category and nothing else, because the question is how many, not whose.</p>
+    <p>Counters live in memory alongside everything else, so they reset when the process
+      restarts. That is a real limitation of the storage decision rather than an oversight:
+      see <a th:href="@{/privacy}">what happens to your data</a>.</p>
+  </section>
+</main>
+</html>

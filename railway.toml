@@ -1,5 +1,10 @@
 # Railway deployment.
 #
+# Deliberately TOML rather than Railway's newer .railway/railway.ts. The CLI warns that config
+# as code is deprecated and keeps working until 2026-12-01, and this repo is Java: adding a
+# TypeScript build file to configure a Java service is a worse trade than revisiting this
+# before that date. Revisit it then, not sooner.
+#
 # The database holds public market data and anonymous counters. It never holds anything
 # somebody uploaded: those live in memory for two hours and are deleted on request. See
 # PRIVACY.md, and SessionStore for the code that makes it true.
