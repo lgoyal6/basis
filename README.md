@@ -221,6 +221,7 @@ basis --help
 | `settle <id> --accept\|--reject\|--resolved` | record a human's judgement on a break |
 | `status` | positions, derived state, open breaks, reference data freshness |
 | `refresh-splits [SYMBOL...]` | fetch split history for symbols that need it |
+| `refresh-fx <PAIR>...` | fetch exchange rates, for a cost reported in another currency |
 | `cache-split <symbol> <new:old> --on DATE` | record a split by hand, no provider needed |
 | `rebuild` | truncate derived state and replay it from the postings |
 | `recover` | resolve an import batch that was interrupted |
@@ -345,8 +346,8 @@ required rather than suggested.
 
 ## Status
 
-Working end to end and used against a real Fidelity export. Not packaged for anyone else
-yet: no release has been cut, and it has been run by one person on one broker.
+Working end to end, deployed, and used against a real Fidelity export. Still run by one
+person on one broker, which is the honest limit on everything below.
 
 What is built:
 
@@ -358,17 +359,29 @@ What is built:
   changing what it is worth, and cash in lieu for the fraction a reverse split leaves
 - Reconciliation producing breaks with a probable cause, and `apply break` to act on one
 - A statement importer driven by per-broker config files, validated against a real export
+- A no-account web flow: upload a statement, see your breaks, leave. Nothing stored in a
+  database, deleted on request. Calls the same ledger code the CLI calls
+- Cost basis compared across currencies, translated at a dated rate that is named in the
+  break so the number can be checked by hand
+- One writer per account, enforced by a Postgres advisory lock, because two importers would
+  otherwise each decide which lots a sale consumes from the same starting state
 - Eight invariants asserted over generated histories, including replay determinism
 
 Known limits:
 
 - `config/brokers/schwab.properties` has never met a real Schwab export. It ships as a
   demonstration that a broker costs a config file, not as a tested profile.
-- Corporate actions are entered by hand. Only splits are looked up automatically.
-- One currency per posting is supported, but nothing converts between currencies, so a
-  genuinely multi-currency account will not reconcile.
-- Ticker renames are maintained by hand in `config/symbol-changes.csv`, because the
-  provider's symbol change endpoint is paywalled.
+- Corporate actions are entered by hand. Only splits are looked up automatically, because
+  the provider paywalls both symbol changes and any per-symbol merger lookup. The 402s are
+  recorded in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) section 31 rather than guessed at.
+- Ticker renames are maintained by hand in `config/symbol-changes.csv`, for the same reason.
+- Exchange rates are used to compare, never to restate. A lot keeps the currency it was paid
+  in forever, so basis will tell you your broker's translated cost differs from its own and
+  will not tell you which rate your broker used.
+- The web flow holds uploads in memory, so it runs as a single instance and a redeploy drops
+  open sessions. That is the price of the privacy claim, and it is deliberate.
+- Nothing has been run at scale. Four transactions, one broker, no benchmark.
+- No release has been cut, so there is no jar to download yet.
 
 ## Contributing
 
