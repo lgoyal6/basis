@@ -21,7 +21,12 @@ That is real output, and the split history behind it is real: Apple did split 4 
 
 ## Try it
 
-One command, no API key, no data of your own. It builds a history that never applied a
+**[See a recorded session](https://lgoyal6.github.io/basis/)** if you would rather watch than
+run. It is a real run of the script below, captured from the binary, replayed step by step.
+The page is a recording and not a running instance: there is no web layer, and a second
+implementation of the ledger in JavaScript could disagree with the first one.
+
+To run it yourself: one command, no API key, no data of your own. It builds a history that never applied a
 split, asks a broker snapshot whether that history is right, and lets basis explain the
 difference:
 
