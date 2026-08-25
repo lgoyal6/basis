@@ -60,7 +60,7 @@ public final class PositionsFile {
         }
     }
 
-    static BrokerSnapshot parse(
+    public static BrokerSnapshot parse(
             List<String> lines, String source, Account brokerRoot, LocalDate asOf, SnapshotScope scope) {
 
         List<BrokerPosition> positions = new ArrayList<>();
