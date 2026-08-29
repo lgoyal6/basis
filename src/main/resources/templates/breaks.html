@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org"
       th:replace="~{layout :: page('Your breaks', ~{::main})}">
-<main>
+<main class="wrap">
   <section class="summary">
     <h1 th:if="${result.isClean()}">Your broker and your history agree.</h1>
     <h1 th:unless="${result.isClean()}">
