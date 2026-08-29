@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org"
       th:replace="~{layout :: page('Numbers', ~{::main})}">
-<main>
+<main class="wrap">
   <section class="summary">
     <h1>
       <span th:text="${breaksFound}">0</span> break<span th:if="${breaksFound != 1}">s</span>
