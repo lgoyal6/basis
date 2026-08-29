@@ -58,15 +58,19 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Left anchored, not centred. A narrow column floating between two empty gutters is the
- * house style of a generated page, and it wastes the width that tables and figures want.
+/* Centred, and capped just above the widest thing on the page.
  *
- * The measure is controlled where it matters instead: prose carries its own max-width in ch,
- * so lines stay readable while the page itself uses the screen. Capped at 90rem so a very
- * wide monitor does not stretch a rule across a metre of glass. */
+ * This used to be left anchored at 90rem on the theory that a centred column wastes width the
+ * tables and figures want. Measured, that theory was wrong: nothing in here is wider than the
+ * 60rem .explain grid, so a 90rem wrap never filled, and on a 1600px screen the entire
+ * document sat in the left 60% with a half-screen of dead paper beside it. A statement is a
+ * centred object, and the page reads as one now.
+ *
+ * 64rem is the cap because it clears the widest block (.explain, 60rem) and its padding with
+ * nothing to spare. Widening it past that only re-opens the gutter it was set to close. */
 .wrap {
-  max-width: 90rem;
-  margin: 0;
+  max-width: 64rem;
+  margin: 0 auto;
   padding: 0 clamp(1.1rem, 3.5vw, 2.75rem);
 }
 
