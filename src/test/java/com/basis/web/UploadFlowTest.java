@@ -102,7 +102,11 @@ class UploadFlowTest {
         mvc.perform(multipart("/check").file(new MockMultipartFile("history", "positions.csv",
                         "text/csv", "symbol,quantity,cost_basis,kind\nAAPL,40,,EQUITY\n"
                                 .getBytes(StandardCharsets.UTF_8))))
-                .andExpect(status().isOk())
+                // The page is the point of this test and it is unchanged. The status is
+                // 400 rather than 200 because a refused upload is a refused upload: while
+                // every rejection answered 200, nothing that reads a status line could tell
+                // one from a computed answer, and the contract said POST /check returns 200.
+                .andExpect(status().isBadRequest())
                 .andExpect(content().string(
                         org.hamcrest.Matchers.containsString("not a history of trades")))
                 .andExpect(content().string(

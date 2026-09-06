@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -32,6 +34,9 @@ import org.springframework.web.multipart.MultipartFile;
 @Controller
 @org.springframework.context.annotation.Profile("web")
 public class UploadController {
+
+    private static final org.slf4j.Logger log =
+            org.slf4j.LoggerFactory.getLogger(UploadController.class);
 
     private final BreakFinder finder;
     private final SessionStore sessions;
@@ -156,9 +161,18 @@ public class UploadController {
             usage.choiceDeclined(upload.demo());
             return "redirect:/breaks#kept";
         }
-        UploadedStatement decided = upload.plus(new UploadedStatement.AppliedChoice(
-                kind, symbol, detail, LocalDate.parse(on)));
+        UploadedStatement decided;
         try {
+            // The date parse is inside the try, and that is the fix rather than tidying.
+            // Outside it, an unparseable "on" threw DateTimeParseException past every
+            // handler here except the catch-all for things that were not expected - a
+            // client sending a bad date is entirely expected - and the boundary corpus
+            // already had two inputs that landed there. While that catch-all answered 200
+            // the corpus could not see it; the moment it answered the 500 such a failure
+            // really is, both cases surfaced. A date basis cannot read is a choice basis
+            // cannot apply, which is the path immediately below.
+            decided = upload.plus(new UploadedStatement.AppliedChoice(
+                    kind, symbol, detail, LocalDate.parse(on)));
             // Tried before it is stored. A choice the ledger refuses would otherwise be
             // saved against the session and thrown on every subsequent page load, which
             // turns one bad decision into a results page the user can never open again.
@@ -239,7 +253,16 @@ public class UploadController {
      * sending them to a dead end with a stack trace guarantees it. The form is still there,
      * still filled in as far as it can be, with a sentence saying what to change.
      */
+
+    // The status is the answer as much as the page is. Every one of these handlers used to
+    // return 200, so a refused upload and a computed answer were indistinguishable to
+    // anything that reads a status line: a monitor, a cache, a generated client, or the
+    // contract itself. Schemathesis found it by posting no body at all to a route whose
+    // contract requires one and getting 200 OK. The rendered page is unchanged - a browser
+    // shows the form again with a sentence, which is the right thing for a person - and the
+    // status line now says what happened.
     @ExceptionHandler(UploadReader.RejectedUpload.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
     public String rejected(UploadReader.RejectedUpload rejection, Model model) {
         usage.parseFailed("unknown", rejection.getMessage(), false);
         model.addAttribute("problem", rejection.getMessage());
@@ -256,7 +279,9 @@ public class UploadController {
      * recognise, and for a corporate action it names the command instead. That message is the
      * most useful thing on the screen, so it is shown rather than summarised.
      */
+
     @ExceptionHandler(StatementFormatException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
     public String unreadable(StatementFormatException failure, Model model) {
         usage.parseFailed("unknown", "statement format", false);
         model.addAttribute("problem", "basis stopped on a row it could not read.");
@@ -279,7 +304,9 @@ public class UploadController {
      * next step is concrete. Reaching this through the unexpected handler was how it behaved
      * the first time a real export was uploaded.
      */
+
     @ExceptionHandler(com.basis.ledger.lot.InsufficientLotsException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
     public String soldSomethingBoughtEarlier(
             com.basis.ledger.lot.InsufficientLotsException failure, Model model) {
         usage.parseFailed("unknown", "purchase outside window", false);
@@ -304,13 +331,55 @@ public class UploadController {
      * body, which is a 500 and a timestamp. Somebody who has just uploaded their trading
      * history deserves to be told that basis broke rather than left to read a status code.
      */
+
+    /**
+     * A request that is not a readable multipart upload, or is missing a part or a parameter.
+     *
+     * <p>Declared here as well as on {@link RequestErrors} because a controller's own
+     * handlers are consulted before any {@code @ControllerAdvice}: without these two, the
+     * {@code RuntimeException} catch-all below claimed them and answered 500 for a POST that
+     * simply carried no file. {@code RequestErrors} still has to exist, because a multipart
+     * body that stops mid-stream fails in the resolver before dispatch chooses a handler at
+     * all, and nothing on this class can be reached from there.
+     */
+    @ExceptionHandler({org.springframework.web.multipart.MultipartException.class,
+            org.springframework.web.multipart.support.MissingServletRequestPartException.class,
+            org.springframework.web.bind.MissingServletRequestParameterException.class,
+            // Sending the same form field twice binds an ArrayList to a String parameter.
+            // That is a malformed request and it was answering 500, with Spring's own
+            // "Failed to convert value of type 'java.util.ArrayList'" in the page.
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class})
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public String requestWasNotUsable(Exception failure, Model model) {
+        usage.parseFailed("unknown", "unusable request", false);
+        boolean unreadable = failure instanceof org.springframework.web.multipart.MultipartException
+                && !(failure instanceof
+                        org.springframework.web.multipart.support.MissingServletRequestPartException);
+        return RequestErrors.page(model,
+                unreadable ? RequestErrors.UNREADABLE : RequestErrors.INCOMPLETE,
+                unreadable ? RequestErrors.UNREADABLE_NEXT : RequestErrors.INCOMPLETE_NEXT,
+                limits);
+    }
+
     @ExceptionHandler(RuntimeException.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public String unexpected(RuntimeException failure, Model model) {
         usage.parseFailed("unknown", "internal", false);
+        // The exception's own message used to go on the page. That is an unconditional
+        // disclosure channel: nobody chooses what goes through it and nobody reviews what
+        // comes out. Schemathesis posted a form with one field repeated and the page came
+        // back carrying "Failed to convert value of type 'java.util.ArrayList' ... to type
+        // [@org.springframework.web.bind.annotation.RequestParam java.lang.String]", which
+        // names the framework, the binding annotation and the handler's signature to an
+        // unauthenticated caller. ApiBoundaryTest already greps response bodies for
+        // "java.lang." and "org.springframework.web"; it had no input that reached here.
+        //
+        // The message still exists where it is useful. This handler is the last resort for
+        // a failure basis did not anticipate, and the log has the stack trace.
+        log.error("unexpected failure while handling an upload", failure);
         model.addAttribute("problem", "basis hit a problem it did not expect while working on that.");
-        model.addAttribute("nextStep", failure.getMessage() == null
-                ? "Nothing was stored. Try uploading the file again."
-                : failure.getMessage());
+        model.addAttribute("nextStep", "Nothing was stored. Try again, and if it keeps"
+                + " happening the file is one basis cannot handle yet.");
         model.addAttribute("brokers", BrokerProfiles.available());
         model.addAttribute("limits", limits);
         return "landing";

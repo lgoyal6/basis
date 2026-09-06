@@ -99,10 +99,17 @@ final class ApiContract {
         byOperation.put("GET /breaks", (mapOf(200, "text/html", 302, null)));
         byOperation.put("GET /breaks.csv",
                 (mapOf(200, "text/csv", 404, "text/csv", 406, null)));
+        // 200 is gone from both, and its absence is the fix rather than an omission. Every
+        // 200 these two ever produced came from an exception handler rendering the form
+        // again, so a refused upload and a computed answer were the same status line;
+        // Schemathesis posted no body to /check, a request the contract requires one for,
+        // and got 200 OK. The refusals are 400 now and carry the page they always carried,
+        // which is also what stopped the framework's application/json error body escaping
+        // from a service that declares no JSON anywhere.
         byOperation.put("POST /check",
-                (mapOf(200, "text/html", 302, null, 400, null)));
+                (mapOf(302, null, 400, "text/html", 500, "text/html")));
         byOperation.put("POST /resolve",
-                (mapOf(200, "text/html", 302, null, 400, null)));
+                (mapOf(302, null, 400, "text/html", 500, "text/html")));
         byOperation.put("POST /delete", mapOf(302, null));
         return byOperation;
     }
@@ -134,18 +141,23 @@ final class ApiContract {
                 406, "The client asked for a media type this endpoint does not produce."));
         d.put("POST /check", mapOf(
                 302, "The statement parsed. A session cookie is set and Location is /breaks.",
-                200, "The upload was refused, and the form is rendered again with the problem"
+                400, "The upload was refused, and the form is rendered again with the problem"
                         + " and the next step. Oversized files, files that are not CSV, a"
                         + " broker that is not in the profile list, a position file in the"
-                        + " history slot and a body that is not multipart all land here.",
-                400, "The multipart request carried no part named history."));
+                        + " history slot, a multipart request with no part named history, a"
+                        + " body that stops mid-stream and a body that is not multipart at all"
+                        + " land here.",
+                500, "basis failed unexpectedly. The form is rendered again with the message;"
+                        + " nothing was stored."));
         d.put("POST /resolve", mapOf(
                 302, "The decision was recorded, declined or refused. Location is /breaks,"
                         + " /breaks#kept, /breaks?refused=1, or /?expired=1 when there is no"
                         + " live session.",
-                200, "The decision could not be read at all, for example an unparseable date,"
-                        + " and the form is rendered again with the problem.",
-                400, "A required field was absent."));
+                400, "A required field was absent, or the decision could not be read at all,"
+                        + " for example an unparseable date. The form is rendered again with"
+                        + " the problem.",
+                500, "basis failed unexpectedly. The form is rendered again with the message;"
+                        + " nothing was stored."));
         d.put("POST /delete", mapOf(302,
                 "The session is gone if there was one. Location is /?deleted=1, and the answer"
                         + " is identical when no cookie was sent."));
@@ -210,7 +222,14 @@ final class ApiContract {
         ObjectNode history = JSON.createObjectNode();
         history.put("type", "string");
         history.put("format", "binary");
-        history.put("description", "The transaction history, as CSV exported by the broker.");
+        // minLength, because the app refuses an empty file and the document did not say so:
+        // Schemathesis generated a zero-byte history part, which the schema permitted, and
+        // reported basis as rejecting a schema-compliant request. The constraint is real
+        // either way - a file with no bytes has no transactions in it - so the honest fix is
+        // to publish it rather than to accept the file.
+        history.put("minLength", 1);
+        history.put("description", "The transaction history, as CSV exported by the broker."
+                + " At least one byte: an empty file is refused.");
         ObjectNode positions = JSON.createObjectNode();
         positions.put("type", "string");
         positions.put("format", "binary");

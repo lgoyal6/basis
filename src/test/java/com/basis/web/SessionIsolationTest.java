@@ -154,7 +154,10 @@ class SessionIsolationTest {
     void theBrokerFieldIsNotAPath() throws Exception {
         String page = mvc.perform(multipart("/check").file(history("AAPL"))
                         .param("broker", "../../gradle/wrapper/gradle-wrapper"))
-                .andExpect(status().isOk())
+                // 400 rather than 200: see UploadFlowTest.theWrongFileGetsAPage. What this
+                // test is about - that the refusal names no file on disk - is below and
+                // unchanged.
+                .andExpect(status().isBadRequest())
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(page)
