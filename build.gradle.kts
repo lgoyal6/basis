@@ -33,6 +33,13 @@ dependencies {
     runtimeOnly("org.postgresql:postgresql")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    // Test scope on purpose. The contract is a build time artifact, not a runtime endpoint.
+    // This app is public and has no accounts, so putting /v3/api-docs and a swagger page on
+    // the deployed service would add an unauthenticated surface in exchange for nothing: the
+    // document is checked in at docs/openapi.json and ApiContractTest compares it to the live
+    // handler mapping in both directions. Keeping springdoc off the runtime classpath means
+    // the shipped jar is unchanged by this.
+    testImplementation("org.springdoc:springdoc-openapi-starter-webmvc-api:2.9.0")
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
     testImplementation("org.testcontainers:junit-jupiter")
     testImplementation("org.testcontainers:postgresql")
@@ -53,6 +60,12 @@ tasks.withType<Test>().configureEach {
     // any instruction to raise it is untrue.
     System.getProperty("basis.crash.iterations")
         ?.let { systemProperty("basis.crash.iterations", it) }
+
+    // Same passthrough, same reason. Without it -Dbasis.openapi.write never reaches the test
+    // JVM, ApiContractTest quietly stays in compare mode, and an instruction to regenerate
+    // the checked contract would silently do nothing.
+    System.getProperty("basis.openapi.write")
+        ?.let { systemProperty("basis.openapi.write", it) }
 
     useJUnitPlatform {
         // -PexcludeTags=week3 drops the invariant 8 placeholder, which fails on purpose.
