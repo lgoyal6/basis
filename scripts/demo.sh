@@ -31,14 +31,54 @@ cleanup() {
 trap cleanup EXIT
 
 say() { printf '\n\033[1;36m%s\033[0m\n' "$1"; }
-run() { printf '\033[1;32m$ basis %s\033[0m\n' "$*"; java -jar build/libs/basis.jar "$@"; }
+
+# Find a JDK 21 and pin it, rather than trusting whatever `java` happens to be first
+# on PATH. The common way to satisfy "needs JDK 21" on a Mac is `brew install
+# openjdk@21`, and Homebrew deliberately does not link that into
+# /Library/Java/JavaVirtualMachines, so Gradle's toolchain detection cannot see it and
+# fails with a message that never mentions Homebrew. Better to say so here.
+java_major() { "$1/bin/java" -version 2>&1 | sed -n 's/.*version "\([0-9]*\).*/\1/p' | head -1; }
+if [ -z "${JAVA_HOME:-}" ] || [ "$(java_major "$JAVA_HOME")" != "21" ]; then
+  for candidate in \
+      "$(/usr/libexec/java_home -v 21 2>/dev/null || true)" \
+      /opt/homebrew/opt/openjdk@21 \
+      /usr/local/opt/openjdk@21 \
+      /usr/lib/jvm/java-21-openjdk-amd64 \
+      /usr/lib/jvm/java-21-openjdk-arm64; do
+    if [ -n "$candidate" ] && [ -x "$candidate/bin/java" ] && [ "$(java_major "$candidate")" = "21" ]; then
+      JAVA_HOME="$candidate"
+      break
+    fi
+  done
+fi
+if [ -z "${JAVA_HOME:-}" ] || [ "$(java_major "$JAVA_HOME")" != "21" ]; then
+  cat >&2 <<'MSG'
+No JDK 21 found. basis targets 21 and Gradle will not fall back to an older one.
+
+  macOS:   brew install openjdk@21
+           export JAVA_HOME=/opt/homebrew/opt/openjdk@21
+           (Homebrew keeps openjdk@21 unlinked, so JAVA_HOME is how anything finds it)
+  Debian:  sudo apt install openjdk-21-jdk
+           export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-$(dpkg --print-architecture)
+MSG
+  exit 1
+fi
+export JAVA_HOME
+JAVA="$JAVA_HOME/bin/java"
+echo "using JDK 21 at $JAVA_HOME"
+
+run() { printf '\033[1;32m$ basis %s\033[0m\n' "$*"; "$JAVA" -jar build/libs/basis.jar "$@"; }
 
 say "Building"
 ./gradlew bootJar --console=plain -q
 
 say "Starting Postgres 16"
 docker compose up -d >/dev/null
-until [ "$(docker inspect -f '{{.State.Health.Status}}' basis-db-1 2>/dev/null)" = "healthy" ]; do
+# By container id, not by the name "basis-db-1": Compose names containers after the
+# project, which is the checkout directory. Cloned into anything but ./basis, a
+# hardcoded name matches nothing and this loop waits forever.
+DB_CONTAINER="$(docker compose ps -q db)"
+until [ "$(docker inspect -f '{{.State.Health.Status}}' "$DB_CONTAINER" 2>/dev/null)" = "healthy" ]; do
   sleep 1
 done
 
@@ -79,7 +119,7 @@ say "5. Do what it said, using the id the output just gave us"
 # "|| true" because breaks exits 3 when it finds any, which is by design and not a
 # failure. Under "set -e" that would end the script here, which is exactly the trap this
 # exit code sets for anyone scripting against it.
-BREAK_ID="$( { java -jar build/libs/basis.jar breaks "$ACCOUNT" || true; } \
+BREAK_ID="$( { "$JAVA" -jar build/libs/basis.jar breaks "$ACCOUNT" || true; } \
   | sed -n 's/.*basis apply break \([0-9]*\).*/\1/p' | head -1)"
 if [ -z "$BREAK_ID" ]; then
   echo "no confirmed break to apply; stopping so this does not look like it worked"

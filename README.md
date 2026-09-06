@@ -35,9 +35,10 @@ memory for two hours and deleted the moment you ask, and it is never written to 
 see [PRIVACY.md](PRIVACY.md) for why that distinction is the point rather than a detail.
 
 ```bash
+export JAVA_HOME=/opt/homebrew/opt/openjdk@21   # a 21 on PATH is not the same thing
 docker compose up -d
 ./gradlew bootJar
-java -jar build/libs/basis.jar serve     # then open http://localhost:8080
+"$JAVA_HOME/bin/java" -jar build/libs/basis.jar serve    # then open http://localhost:8080
 ```
 
 There is a "See a demo" button that needs no file and no API key. It shows a break basis can
@@ -57,10 +58,16 @@ git clone https://github.com/lgoyal6/basis && cd basis
 ./scripts/demo.sh
 ```
 
-Needs JDK 21 and Docker, and tears the database down when it finishes. It walks the whole
-loop: import, reconcile, find the ratio, refuse to call it a split without evidence, record
-the split, reconcile again, apply the fix, confirm nothing is left, then throw the derived
-state away and replay it from the postings.
+Needs JDK 21 and Docker, and tears the database down when it finishes. It finds the JDK
+itself and tells you how to install one if it cannot, which matters more on a Mac than it
+sounds: `brew install openjdk@21` satisfies the requirement but Homebrew leaves it
+unlinked, so Gradle's toolchain detection never sees it and the build fails complaining
+about a missing Java 21 without ever mentioning Homebrew. If you would rather set it
+yourself, `export JAVA_HOME=/opt/homebrew/opt/openjdk@21`.
+
+It walks the whole loop: import, reconcile, find the ratio, refuse to call it a split
+without evidence, record the split, reconcile again, apply the fix, confirm nothing is
+left, then throw the derived state away and replay it from the postings.
 
 ## Contents
 
@@ -87,10 +94,23 @@ state away and replay it from the postings.
 
 ## Quickstart
 
-Needs JDK 21 and Docker.
+This is the path for your own two files: the transaction history your broker exports, and
+the position snapshot you are checking it against. Nothing in the repo stands in for them,
+because a reconciliation against invented positions proves nothing about yours. If you do
+not have them to hand yet, `./scripts/demo.sh` above walks the same loop on data it makes
+up on the spot, and [Getting your transaction history](#getting-your-transaction-history)
+says where the real files come from.
+
+Needs JDK 21 and Docker. Gradle will not fall back to an older JDK, and on macOS the
+usual `brew install openjdk@21` is not enough on its own because Homebrew leaves it
+unlinked where Gradle's toolchain detection cannot find it:
+`export JAVA_HOME=/opt/homebrew/opt/openjdk@21` before the build. On Debian,
+`sudo apt install openjdk-21-jdk`.
 
 ```bash
 git clone https://github.com/lgoyal6/basis && cd basis
+
+export JAVA_HOME=/opt/homebrew/opt/openjdk@21   # or wherever your 21 lives
 
 docker compose up -d          # Postgres 16, which is all it depends on
 ./gradlew bootJar
@@ -99,7 +119,10 @@ export BASIS_DB_URL=jdbc:postgresql://localhost:5432/basis
 export BASIS_DB_USER=basis BASIS_DB_PASSWORD=basis
 # a function, not basis="java -jar ...". zsh does not word-split an unquoted
 # variable, so the string form works in bash and silently fails on a stock Mac.
-basis() { java -jar build/libs/basis.jar "$@"; }
+# and $JAVA_HOME/bin/java rather than plain java: installing a 21 does not make it
+# the one on PATH, and an older one meets a class file it cannot read and dies with
+# UnsupportedClassVersionError before printing anything about basis at all.
+basis() { "$JAVA_HOME/bin/java" -jar build/libs/basis.jar "$@"; }
 
 # what you held before your oldest statement. a Fidelity download covers 90 days,
 # so a sale in it whose purchase is older needs this first
@@ -108,6 +131,9 @@ basis open Assets:Broker:Fidelity AAPL 100 --cost 90.00 --on 2015-03-12
 basis import fidelity Assets:Broker:Fidelity history.csv    # the statements
 basis reconcile Assets:Broker:Fidelity positions.csv --as-of 2026-03-31
 ```
+
+`positions.csv` is `symbol,quantity,cost_basis,kind`, one row per holding, and
+`cost_basis` may be left empty; `scripts/demo.sh` writes one you can copy the shape from.
 
 If basis and your broker disagree, the last command prints each break, what it thinks
 caused it, and the exact command to act on it. Run that, then reconcile again to confirm
