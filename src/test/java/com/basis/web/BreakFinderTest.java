@@ -155,6 +155,41 @@ class BreakFinderTest {
                 .isEmpty();
     }
 
+    @Test
+    @DisplayName("cost basis over many lots is the sum of the lots, not a sum of rounded ones")
+    void theCostBasisOfManyLotsDoesNotDrift() {
+        // 9000 shares for 3000.00 is a unit cost of 0.333333, and a lot of them is worth
+        // 2999.997: three tenths of a cent that two decimal places cannot hold. That is
+        // fine once. It is not fine a hundred times, because the running total is rounded
+        // to the penny before the next lot is added to it, so the three tenths are thrown
+        // away once per lot and the figure on the page stops being the sum of the lots it
+        // claims to be summarising.
+        int lots = 100;
+        List<String> history = new java.util.ArrayList<>();
+        history.add(HEADER);
+        history.add("01/02/2020,Individual,X,ELECTRONIC FUNDS TRANSFER RECEIVED (Cash),\"\","
+                + "No Description,Cash,\"\",\"\",\"\",\"\",\"\",400000,01/02/2020");
+        for (int i = 0; i < lots; i++) {
+            history.add("01/03/2020,Individual,X,YOU BOUGHT PENNY CORP (PNNY) (Cash),PNNY,"
+                    + "PENNY CORP,Cash,0.333333,9000,\"\",\"\",\"\",-3000.00,01/06/2020");
+        }
+
+        BreakFinder.Result result = finder(SplitCalendar.EMPTY)
+                .find(UploadedStatement.of("fidelity", history, List.of(), "h.csv", null, false));
+
+        assertThat(result.positions()).singleElement().satisfies(holding -> {
+            assertThat(holding.quantity().value()).isEqualByComparingTo("900000");
+            // What the ledger holds is 100 lots of 9000 x 0.333333, which is 299999.70. The
+            // page has to report that, not 300000.00: the money spent and the basis the
+            // ledger can defend are two different numbers once the unit cost is rounded, and
+            // the position summary is a summary of the lots.
+            assertThat(holding.costBasis())
+                    .as("rounding each running total loses three tenths of a cent per lot,"
+                            + " which over a hundred lots is thirty cents of invented basis")
+                    .isEqualTo("299999.70");
+        });
+    }
+
     private static BreakFinder finder(SplitCalendar splits) {
         return new BreakFinder(splits);
     }
