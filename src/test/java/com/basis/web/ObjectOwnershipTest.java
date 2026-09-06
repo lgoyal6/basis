@@ -72,6 +72,10 @@ class ObjectOwnershipTest {
     @Autowired
     private MockMvc mvc;
 
+    /** The oracle. Deliberately not reached through any route this file drives. */
+    @Autowired
+    private SessionStore sessions;
+
     @Test
     @DisplayName("no mutation of one person's cookie reaches the other person's object")
     void mutatedIdentitiesReachNothing() throws Exception {
@@ -144,6 +148,15 @@ class ObjectOwnershipTest {
         assertThat(before).as("the object has to have content for its being unchanged to mean"
                 + " anything").contains("AAPL").hasSizeGreaterThan(100);
 
+        // The store itself, read directly, is the oracle that does not run through the code
+        // path under test. Asking /breaks.csv whether Alice's data survived means the answer
+        // comes back through the same session resolution that would have to be broken for a
+        // forged cookie to reach it, so a scoping bug would be checked by the layer that
+        // caused it and could agree with itself. These two are read from SessionStore, which
+        // no request in this test passes through.
+        int storedBefore = sessions.size();
+        assertThat(storedBefore).as("two uploads are held").isGreaterThanOrEqualTo(1);
+
         Random random = new Random(SEED);
         List<String> mutations = mutationsOf(alice.getValue());
         int forgedWrites = 0;
@@ -160,14 +173,24 @@ class ObjectOwnershipTest {
                     .param("on", "2020-08-31"));
         }
 
+        assertThat(sessions.size())
+                .as("after " + forgedWrites + " forged writes, the store holds the same number"
+                        + " of sessions. Read from SessionStore rather than from the API, so a"
+                        + " forged delete that removed a row would show here even if every"
+                        + " response body still looked right")
+                .isEqualTo(storedBefore);
         assertThat(body(get("/breaks.csv").cookie(alice)))
-                .as("after " + forgedWrites + " forged writes, Alice's export has to be the"
-                        + " same bytes it was")
+                .as("and Alice's export is the same bytes it was")
                 .isEqualTo(before);
 
         // The control: Alice's own delete does work, so "unchanged" above is not just an app
         // in which nothing can be changed by anyone.
         mvc.perform(post("/delete").cookie(alice));
+        assertThat(sessions.size())
+                .as("the negative control for the store oracle: Alice's own delete does remove"
+                        + " a row, so 'unchanged' above is a real observation and not a counter"
+                        + " that never moves")
+                .isEqualTo(storedBefore - 1);
         assertThat(body(get("/breaks.csv").cookie(alice))).isEqualTo("no session\n");
     }
 
