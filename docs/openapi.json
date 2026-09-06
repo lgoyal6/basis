@@ -1,0 +1,304 @@
+{
+  "components" : { },
+  "info" : {
+    "description" : "Checked contract for the basis web layer. Generated from the handler annotations by springdoc, with the response half declared in ApiContract and proved against real responses by ApiBoundaryTest. Regenerate with: ./gradlew test --tests '*ApiContractTest' -Dbasis.openapi.write=true",
+    "title" : "basis",
+    "version" : "0.1.0"
+  },
+  "openapi" : "3.1.0",
+  "paths" : {
+    "/" : {
+      "get" : {
+        "operationId" : "landing",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "text/html" : {
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "The upload form."
+          }
+        }
+      }
+    },
+    "/breaks" : {
+      "get" : {
+        "operationId" : "breaks",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "text/html" : {
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "The break list for the session named by the cookie."
+          },
+          "302" : {
+            "description" : "No live session. Location is /?expired=1, and it is the same answer for a missing cookie, an unparseable one, and a valid one whose upload has been deleted or has expired.",
+            "headers" : {
+              "Location" : {
+                "description" : "Where the browser goes next.",
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/breaks.csv" : {
+      "get" : {
+        "operationId" : "export",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "text/csv" : {
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "The break list as CSV."
+          },
+          "404" : {
+            "content" : {
+              "text/csv" : {
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "No live session. The body is the fixed string \"no session\"; it does not say whether the id existed."
+          },
+          "406" : {
+            "description" : "The client asked for a media type this endpoint does not produce."
+          }
+        }
+      }
+    },
+    "/check" : {
+      "post" : {
+        "operationId" : "check",
+        "requestBody" : {
+          "content" : {
+            "multipart/form-data" : {
+              "schema" : {
+                "properties" : {
+                  "broker" : {
+                    "description" : "One of the names in config/brokers, or absent to detect it from the header row. Anything else is refused: this value goes on to name a file.",
+                    "type" : "string"
+                  },
+                  "history" : {
+                    "description" : "The transaction history, as CSV exported by the broker.",
+                    "format" : "binary",
+                    "type" : "string"
+                  },
+                  "positions" : {
+                    "description" : "The position statement, optional. Without it every break is a gap against nothing rather than against what the broker says you hold.",
+                    "format" : "binary",
+                    "type" : "string"
+                  }
+                },
+                "required" : [ "history" ],
+                "type" : "object"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "text/html" : {
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "The upload was refused, and the form is rendered again with the problem and the next step. Oversized files, files that are not CSV, a broker that is not in the profile list, a position file in the history slot and a body that is not multipart all land here."
+          },
+          "302" : {
+            "description" : "The statement parsed. A session cookie is set and Location is /breaks.",
+            "headers" : {
+              "Location" : {
+                "description" : "Where the browser goes next.",
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            }
+          },
+          "400" : {
+            "description" : "The multipart request carried no part named history."
+          }
+        }
+      }
+    },
+    "/delete" : {
+      "post" : {
+        "operationId" : "delete",
+        "responses" : {
+          "302" : {
+            "description" : "The session is gone if there was one. Location is /?deleted=1, and the answer is identical when no cookie was sent.",
+            "headers" : {
+              "Location" : {
+                "description" : "Where the browser goes next.",
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/demo" : {
+      "get" : {
+        "operationId" : "startDemo",
+        "responses" : {
+          "302" : {
+            "description" : "A seeded session was created. Location is /breaks.",
+            "headers" : {
+              "Location" : {
+                "description" : "Where the browser goes next.",
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health" : {
+      "get" : {
+        "operationId" : "health",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "text/plain" : {
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "The database answered."
+          },
+          "406" : {
+            "description" : "The caller asked for a media type this endpoint does not produce. It is pinned to text/plain so that a request for JSON is refused rather than answered with prose labelled as JSON."
+          },
+          "503" : {
+            "content" : {
+              "text/plain" : {
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "The database did not answer. The reason is withheld on purpose: this endpoint is unauthenticated and a driver message names hosts, users and schemas."
+          }
+        }
+      }
+    },
+    "/metrics" : {
+      "get" : {
+        "operationId" : "metrics",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "text/html" : {
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "Counters, with real and demo kept apart."
+          }
+        }
+      }
+    },
+    "/privacy" : {
+      "get" : {
+        "operationId" : "privacy",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "text/html" : {
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "The retention promise, rendering the lifetime this deploy is configured with."
+          }
+        }
+      }
+    },
+    "/resolve" : {
+      "post" : {
+        "operationId" : "resolve",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "kind",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "symbol",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "detail",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "on",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "text/html" : {
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "The decision could not be read at all, for example an unparseable date, and the form is rendered again with the problem."
+          },
+          "302" : {
+            "description" : "The decision was recorded, declined or refused. Location is /breaks, /breaks#kept, /breaks?refused=1, or /?expired=1 when there is no live session.",
+            "headers" : {
+              "Location" : {
+                "description" : "Where the browser goes next.",
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            }
+          },
+          "400" : {
+            "description" : "A required field was absent."
+          }
+        }
+      }
+    }
+  }
+}
