@@ -302,6 +302,20 @@ public class UploadController {
 
     private String chooseBroker(String override, String headerLine) {
         if (override != null && !override.isBlank() && !override.equals("auto")) {
+            // The list, not the field. A select on a page is not a promise about what was
+            // posted, and the name goes on to name a file. BrokerProfiles refuses anything
+            // that is not a bare name as well, which is the check that actually has to hold;
+            // this one is here so the answer is the upload page and a sentence rather than
+            // the handler for things that were not expected.
+            if (!BrokerProfiles.available().contains(
+                    override.toLowerCase(java.util.Locale.ROOT))) {
+                throw new UploadReader.RejectedUpload(
+                        "basis has no profile for the broker that was chosen.",
+                        "Pick one from the list and upload it again. It knows: "
+                                + String.join(", ", BrokerProfiles.available())
+                                + ". Adding another is a config file rather than code, and the"
+                                + " README explains how.");
+            }
             return override;
         }
         return BrokerDetector.detect(headerLine)

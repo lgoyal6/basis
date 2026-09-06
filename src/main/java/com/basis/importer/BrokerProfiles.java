@@ -47,6 +47,19 @@ public final class BrokerProfiles {
 
     private static final String SEPARATOR = "\\|";
 
+    /**
+     * What a broker name may look like: a bare file name, so that it cannot be a path.
+     *
+     * <p>The name reaches this class from a form field on a public page. Handed to
+     * {@code resolve} unchecked it is a path rather than a name: {@code ../../x} walks out
+     * of the profile directory and an absolute path discards the directory entirely. Nothing
+     * could be read that way, because the file still has to parse as a profile, but the two
+     * different refusals told a stranger whether the {@code .properties} file they named
+     * existed on the server, which is an oracle nobody asked for.
+     */
+    private static final java.util.regex.Pattern NAME =
+            java.util.regex.Pattern.compile("[a-z0-9_-]{1,64}");
+
     private BrokerProfiles() {
     }
 
@@ -55,7 +68,17 @@ public final class BrokerProfiles {
     }
 
     public static BrokerProfile load(Path directory, String broker) {
-        Path file = directory.resolve(broker.toLowerCase(Locale.ROOT) + ".properties");
+        String name = broker == null ? "" : broker.toLowerCase(Locale.ROOT);
+        // Checked here rather than only where the name arrives, because this is where the
+        // path is built and a caller that forgets is the normal case. The refusal says
+        // nothing about what is or is not on disk, on purpose: a message that distinguished
+        // the two would be the disclosure this check exists to stop.
+        if (!NAME.matcher(name).matches()) {
+            throw new IllegalArgumentException("that is not a broker name."
+                    + " Available: " + String.join(", ", available(directory))
+                    + ". A new broker is a properties file in " + directory + ", not code.");
+        }
+        Path file = directory.resolve(name + ".properties");
         if (!Files.exists(file)) {
             throw new IllegalArgumentException("no broker profile at " + file + "."
                     + " Available: " + String.join(", ", available(directory))
