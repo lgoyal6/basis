@@ -40,7 +40,8 @@ class SessionStoreTest {
     }
 
     private final Ticking clock = new Ticking();
-    private final SessionStore store = new SessionStore(clock);
+    // Zeroes take the record's own defaults, which is where the two hours now lives.
+    private final SessionStore store = new SessionStore(clock, new WebConfig.Limits(0, 0, 0));
 
     @Test
     @DisplayName("an upload is reachable by its id and by nothing else")
@@ -70,7 +71,7 @@ class SessionStoreTest {
     void expiryIsEnforcedOnRead() {
         String id = store.put(statement("a"));
 
-        clock.advance(SessionStore.LIFETIME.minusSeconds(1));
+        clock.advance(store.lifetime().minusSeconds(1));
         assertThat(store.get(id)).as("still inside its lifetime").isPresent();
 
         clock.advance(Duration.ofSeconds(2));
@@ -121,7 +122,7 @@ class SessionStoreTest {
     @DisplayName("sweeping removes what has expired and leaves what has not")
     void sweepRemovesOnlyTheExpired() {
         String old = store.put(statement("old"));
-        clock.advance(SessionStore.LIFETIME.minusMinutes(1));
+        clock.advance(store.lifetime().minusMinutes(1));
         String fresh = store.put(statement("fresh"));
         clock.advance(Duration.ofMinutes(2));
 

@@ -99,7 +99,7 @@ public class UploadController {
 
         usage.parsed(broker, result, false);
         String id = sessions.put(upload);
-        cookies.write(response, id, request.isSecure(), (int) SessionStore.LIFETIME.toSeconds());
+        cookies.write(response, id, request.isSecure(), (int) sessions.lifetime().toSeconds());
         return "redirect:/breaks";
     }
 
@@ -109,7 +109,7 @@ public class UploadController {
         BreakFinder.Result result = finder.find(seeded);
         usage.parsed("demo", result, true);
         String id = sessions.put(seeded);
-        cookies.write(response, id, request.isSecure(), (int) SessionStore.LIFETIME.toSeconds());
+        cookies.write(response, id, request.isSecure(), (int) sessions.lifetime().toSeconds());
         return "redirect:/breaks";
     }
 
@@ -212,8 +212,24 @@ public class UploadController {
 
     @GetMapping(value = "/privacy")
     public String privacy(Model model) {
-        model.addAttribute("lifetimeHours", SessionStore.LIFETIME.toHours());
+        model.addAttribute("lifetime", describe(sessions.lifetime()));
         return "privacy";
+    }
+
+    /**
+     * The retention this deploy actually applies, in words.
+     *
+     * <p>Said rather than counted in hours, because the setting is in minutes and a deploy
+     * that keeps an upload for thirty of them would have told a stranger it was deleted in
+     * "0 hours". The privacy page is the one page here whose whole value is being accurate.
+     */
+    private static String describe(java.time.Duration lifetime) {
+        long minutes = lifetime.toMinutes();
+        if (minutes % 60 == 0) {
+            long hours = minutes / 60;
+            return hours + (hours == 1 ? " hour" : " hours");
+        }
+        return minutes + (minutes == 1 ? " minute" : " minutes");
     }
 
     /**

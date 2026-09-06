@@ -27,16 +27,15 @@ import org.springframework.stereotype.Component;
  *
  * <p>Entries expire on a timer and can be deleted immediately. Expiry is checked on read as
  * well as swept in the background, so an expired session is unreachable the instant it
- * expires rather than whenever the sweeper next runs.
+ * expires rather than whenever the sweeper next runs. How long that timer is comes from
+ * configuration, because retention is an operational decision and the privacy page has to
+ * quote whatever this deploy actually does.
  */
 @Component
 // Web only. Scanned into a CLI context these would demand beans the web profile
 // provides, which is how adding the web layer broke every Spring test at once.
 @org.springframework.context.annotation.Profile("web")
 public class SessionStore {
-
-    /** Long enough to read a break list and act on it, short enough not to be storage. */
-    public static final Duration LIFETIME = Duration.ofHours(2);
 
     /**
      * A ceiling, so a public endpoint cannot be turned into a memory exhaustion attack by
@@ -47,9 +46,24 @@ public class SessionStore {
     private final Map<String, Entry> sessions = new ConcurrentHashMap<>();
     private final SecureRandom random = new SecureRandom();
     private final Clock clock;
+    private final Duration lifetime;
 
-    public SessionStore(Clock clock) {
+    public SessionStore(Clock clock, WebConfig.Limits limits) {
         this.clock = clock;
+        this.lifetime = Duration.ofMinutes(limits.sessionMinutes());
+    }
+
+    /**
+     * How long an upload survives here, if nobody deletes it sooner.
+     *
+     * <p>Read from {@code basis.web.session-minutes} rather than fixed at two hours in this
+     * file. It used to be a constant here while the setting sat in application.yml being
+     * read by nothing, so an operator who shortened retention got a config file that said
+     * one thing and a service that did another. Long enough to read a break list and act on
+     * it, short enough not to be storage, and whoever runs it decides where that is.
+     */
+    public Duration lifetime() {
+        return lifetime;
     }
 
     private record Entry(UploadedStatement statement, Instant expiresAt) {
@@ -68,7 +82,7 @@ public class SessionStore {
         byte[] bytes = new byte[32];
         random.nextBytes(bytes);
         String id = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-        sessions.put(id, new Entry(statement, clock.instant().plus(LIFETIME)));
+        sessions.put(id, new Entry(statement, clock.instant().plus(lifetime)));
         return id;
     }
 
