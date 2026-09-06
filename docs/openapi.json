@@ -95,8 +95,9 @@
                     "type" : "string"
                   },
                   "history" : {
-                    "description" : "The transaction history, as CSV exported by the broker.",
+                    "description" : "The transaction history, as CSV exported by the broker. At least one byte: an empty file is refused.",
                     "format" : "binary",
+                    "minLength" : 1,
                     "type" : "string"
                   },
                   "positions" : {
@@ -113,16 +114,6 @@
           "required" : true
         },
         "responses" : {
-          "200" : {
-            "content" : {
-              "text/html" : {
-                "schema" : {
-                  "type" : "string"
-                }
-              }
-            },
-            "description" : "The upload was refused, and the form is rendered again with the problem and the next step. Oversized files, files that are not CSV, a broker that is not in the profile list, a position file in the history slot and a body that is not multipart all land here."
-          },
           "302" : {
             "description" : "The statement parsed. A session cookie is set and Location is /breaks.",
             "headers" : {
@@ -135,7 +126,24 @@
             }
           },
           "400" : {
-            "description" : "The multipart request carried no part named history."
+            "content" : {
+              "text/html" : {
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "The upload was refused, and the form is rendered again with the problem and the next step. Oversized files, files that are not CSV, a broker that is not in the profile list, a position file in the history slot, a multipart request with no part named history, a body that stops mid-stream and a body that is not multipart at all land here."
+          },
+          "500" : {
+            "content" : {
+              "text/html" : {
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "basis failed unexpectedly. The form is rendered again with the message; nothing was stored."
           }
         }
       }
@@ -273,16 +281,6 @@
           }
         } ],
         "responses" : {
-          "200" : {
-            "content" : {
-              "text/html" : {
-                "schema" : {
-                  "type" : "string"
-                }
-              }
-            },
-            "description" : "The decision could not be read at all, for example an unparseable date, and the form is rendered again with the problem."
-          },
           "302" : {
             "description" : "The decision was recorded, declined or refused. Location is /breaks, /breaks#kept, /breaks?refused=1, or /?expired=1 when there is no live session.",
             "headers" : {
@@ -295,7 +293,24 @@
             }
           },
           "400" : {
-            "description" : "A required field was absent."
+            "content" : {
+              "text/html" : {
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "A required field was absent, or the decision could not be read at all, for example an unparseable date. The form is rendered again with the problem."
+          },
+          "500" : {
+            "content" : {
+              "text/html" : {
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "basis failed unexpectedly. The form is rendered again with the message; nothing was stored."
           }
         }
       }
