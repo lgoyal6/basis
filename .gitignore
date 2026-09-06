@@ -8,3 +8,6 @@ build/
 .DS_Store
 __pycache__/
 .jqwik-database
+
+# Schemathesis keeps a local cache of shrunk failing cases here.
+.schemathesis/
