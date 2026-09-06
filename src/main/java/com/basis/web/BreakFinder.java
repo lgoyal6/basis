@@ -208,6 +208,14 @@ public class BreakFinder {
 
     private List<Holding> holdings(LedgerState state, Account broker) {
         Map<String, Holding> byCommodity = new LinkedHashMap<>();
+        // The running total is carried here at full precision rather than read back out of
+        // the Holding, whose cost basis is already rounded to the penny for display. A lot's
+        // basis is a quantity at scale 8 times a unit cost at scale 6, so it routinely has
+        // more than two decimal places, and adding the next lot to a figure that has been
+        // rounded already throws that fraction away once per lot. A hundred lots of a penny
+        // stock came out thirty cents above the basis the ledger holds, which is a summary
+        // disagreeing with the thing it summarises. Round once, at the end.
+        Map<String, BigDecimal> exactBasis = new LinkedHashMap<>();
         for (Lot lot : state.allLots()) {
             if (!lot.account().name().startsWith(broker.name())) {
                 continue;
@@ -216,9 +224,9 @@ public class BreakFinder {
             Holding existing = byCommodity.get(symbol);
             Quantity quantity = existing == null ? lot.remainingQuantity()
                     : existing.quantity().plus(lot.remainingQuantity());
-            BigDecimal basis = lot.remainingQuantity().value().multiply(lot.unitCost().value());
-            BigDecimal running = existing == null ? basis
-                    : new BigDecimal(existing.costBasis()).add(basis);
+            BigDecimal running = exactBasis.merge(symbol,
+                    lot.remainingQuantity().value().multiply(lot.unitCost().value()),
+                    BigDecimal::add);
             byCommodity.put(symbol, new Holding(symbol, quantity,
                     running.setScale(2, java.math.RoundingMode.HALF_EVEN).toPlainString(),
                     existing == null ? 1 : existing.lots() + 1));
