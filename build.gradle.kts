@@ -67,6 +67,11 @@ tasks.withType<Test>().configureEach {
     System.getProperty("basis.openapi.write")
         ?.let { systemProperty("basis.openapi.write", it) }
 
+    // And again for the boundary corpus' seed, so widening it is a command line rather than
+    // an edit. Absent the property the seed is the fixed one and the run is reproducible.
+    System.getProperty("basis.fuzz.seed")
+        ?.let { systemProperty("basis.fuzz.seed", it) }
+
     useJUnitPlatform {
         // -PexcludeTags=week3 drops the invariant 8 placeholder, which fails on purpose.
         // Useful for a CI gate; the default run keeps it red so the gap stays visible.
