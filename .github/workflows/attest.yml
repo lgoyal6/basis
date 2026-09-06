@@ -1,0 +1,88 @@
+name: attest
+
+# Build provenance and SBOM attestation for the jar somebody actually runs.
+#
+# Push-triggered on purpose: the attestation is a statement about a build that
+# actually happened, signed with an identity only GitHub's OIDC issuer can mint
+# for this repository. There is no way to produce one out of band, which is what
+# makes `gh attestation verify` mean anything.
+#
+# release.yml already turns a tag into a downloadable jar. That says the bytes
+# exist; it does not say which source revision and which workflow produced them,
+# which is the gap this closes.
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # mint the OIDC token Sigstore binds the signature to
+      attestations: write # write the signed bundle to this repository's attestation store
+    steps:
+      # Every action is pinned to a commit SHA rather than a tag: a tag is a
+      # mutable pointer its owner can move to different code at any time, so a
+      # tag pin does not fix what actually runs here.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          java-version: '21'
+          distribution: temurin
+
+      # bootJar only. The suite runs in tests.yml and needs Docker for
+      # Testcontainers; repeating it here would double the cost of every push
+      # without changing what the attestation says about the jar.
+      - name: build jar
+        run: ./gradlew bootJar --console=plain
+
+      # Read out of the fat jar rather than off build.gradle.kts: the jar carries
+      # the nested dependency jars that were actually packaged, which is the set
+      # the provenance attestation is a statement about. The build file lists
+      # what the source tree asks for, which is not the same claim.
+      - name: sbom
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          file: build/libs/basis.jar
+          format: spdx-json
+          output-file: basis.spdx.json
+          syft-version: v1.51.1
+          upload-artifact: false
+          upload-release-assets: false
+          dependency-snapshot: false
+
+      # The digest the attestation will carry. Printed so the value a verifier
+      # computes locally can be compared against the run that produced it.
+      - name: artifact digest
+        run: sha256sum build/libs/basis.jar | tee artifact-digests.txt
+
+      - name: attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: build/libs/basis.jar
+
+      - name: attest sbom
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: build/libs/basis.jar
+          sbom-path: basis.spdx.json
+
+      # The attested bytes themselves, so verification can be run against the
+      # exact artifact the attestation names rather than a local rebuild.
+      - name: upload attested artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: basis-attested
+          path: |
+            build/libs/basis.jar
+            basis.spdx.json
+            artifact-digests.txt
+          if-no-files-found: error
