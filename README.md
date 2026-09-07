@@ -370,6 +370,14 @@ JAVA_HOME=/path/to/jdk-21 ./gradlew test
 Testcontainers starts a real Postgres 16 for the persistence tests, which is why Docker is
 required rather than suggested.
 
+`BrowserSessionDiagnosticsTest` uses an installed Chrome or Chromium executable rather than a
+second browser framework. It starts the real Spring service, follows the demo flow in headless
+Chrome, and reads Chrome's console output and NetLog file for protected values. The NetLog uses
+Chrome's default capture mode, which omits cookie and request-body contents while retaining URL,
+method, status and connection events. A negative control puts a seeded secret in a request URL
+and proves the scanner fails. This check covers Chrome only and requires the browser executable
+to be installed on the test host.
+
 ## Status
 
 Working end to end, deployed, and used against a real Fidelity export. Still run by one
