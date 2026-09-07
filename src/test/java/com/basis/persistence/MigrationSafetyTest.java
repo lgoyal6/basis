@@ -3,17 +3,27 @@ package com.basis.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.basis.domain.Account;
+import com.basis.domain.Commodity;
+import com.basis.domain.Quantity;
+import com.basis.reconcile.BreakRecord;
+import com.basis.reconcile.BreakStatus;
+import com.basis.reconcile.BreakType;
+import com.basis.reconcile.ProbableCause;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.time.LocalDate;
 import java.util.List;
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -40,17 +50,19 @@ class MigrationSafetyTest {
 
     private static final String SHIPPED = "filesystem:src/main/resources/db/migration";
 
-    /** The columns break_record was created with in V5, before reconciliation existed. */
+    /** The columns the first BreakRecordRepository wrote before V7 widened the cause. */
     private static final String WEEK_ONE_INSERT =
             "INSERT INTO break_record (as_of_date, account, commodity, break_type,"
                     + " broker_quantity, computed_quantity, probable_cause)"
-                    + " VALUES (DATE '2020-08-31', 'Assets:Broker:Uploaded', 'AAPL', 'QUANTITY',"
+                    + " VALUES (DATE '2020-08-31', 'Assets:Broker:Uploaded', 'AAPL', 'QUANTITY_MISMATCH',"
                     + " 40, 10, 'looks like a four for one split')";
 
     @Test
     @DisplayName("a migration that fails leaves the schema exactly as it was, and rerunning works")
     void aFailedMigrationLeavesNothingBehind(@TempDir Path broken) throws Exception {
         String schema = schema("failed_migration");
+        flyway(schema, SHIPPED).migrate();
+        new PreviousBreakService(schema).record("survives failed migration");
         // Valid up to the last statement, so it fails after doing work rather than before.
         // That is the case worth knowing about: a migration that never started is not the
         // one that wakes anybody up.
@@ -69,10 +81,16 @@ class MigrationSafetyTest {
         assertThat(appliedVersions(schema))
                 .as("nothing to repair by hand: the failure recorded no version to get stuck on")
                 .doesNotContain("900");
+        assertThat(count(schema, "SELECT count(*) FROM break_record"))
+                .as("the row written before the failed deploy survives its rollback")
+                .isEqualTo(1);
 
         // The recovery is to fix the file and run it again. Here the fix is to remove it.
         assertThat(flyway(schema, SHIPPED).migrate().success).isTrue();
         assertThat(tableExists(schema, "break_record")).isTrue();
+        assertThat(currentService(schema).findOpen(Account.of("Assets:Broker:Uploaded")))
+                .as("current code can read the preserved row after the repair")
+                .hasSize(1);
     }
 
     @Test
@@ -82,22 +100,37 @@ class MigrationSafetyTest {
         // The old version's schema, as it stood before V7 widened the cause into four
         // columns. Its writes are the ones a rolling deploy leaves in flight.
         flywayUpTo(schema, "6").migrate();
-        execute(schema, WEEK_ONE_INSERT);
+        PreviousBreakService previous = new PreviousBreakService(schema);
+        previous.record("old service before migration");
 
         flyway(schema, SHIPPED).migrate();
 
         // Old code, new schema, same statement. This is what makes V7 an expand: every
         // column it added carries a default, and probable_cause is still there to write to.
-        execute(schema, WEEK_ONE_INSERT);
-        assertThat(count(schema, "SELECT count(*) FROM break_record")).isEqualTo(2);
+        previous.record("old service during rollout");
+        currentService(schema).record(new BreakRecord(
+                LocalDate.of(2020, 8, 31),
+                Account.of("Assets:Broker:Uploaded"),
+                Commodity.equity("MSFT"),
+                BreakType.QUANTITY_MISMATCH,
+                Quantity.of(BigDecimal.valueOf(25)),
+                Quantity.of(BigDecimal.TEN),
+                null,
+                null,
+                ProbableCause.unexplained("current service during rollout"),
+                BreakStatus.OPEN));
+        assertThat(count(schema, "SELECT count(*) FROM break_record")).isEqualTo(3);
         assertThat(count(schema,
                 "SELECT count(*) FROM break_record WHERE cause_code = 'UNEXPLAINED'"))
                 .as("a row written by the old version reads back with the new column defaulted")
-                .isEqualTo(2);
+                .isEqualTo(3);
         assertThat(count(schema,
                 "SELECT count(*) FROM break_record WHERE probable_cause IS NOT NULL"))
                 .as("the column the old version writes was widened beside, not replaced")
-                .isEqualTo(2);
+                .isEqualTo(3);
+        assertThat(currentService(schema).findOpen(Account.of("Assets:Broker:Uploaded")))
+                .as("the current service reads rows from both service versions")
+                .hasSize(3);
     }
 
     @Test
@@ -226,5 +259,31 @@ class MigrationSafetyTest {
         source.setUsername(POSTGRES.getUsername());
         source.setPassword(POSTGRES.getPassword());
         return source;
+    }
+
+    private static BreakRecordRepository currentService(String schema) throws Exception {
+        org.springframework.jdbc.datasource.DriverManagerDataSource source =
+                new org.springframework.jdbc.datasource.DriverManagerDataSource();
+        String url = POSTGRES.getJdbcUrl();
+        source.setUrl(url + (url.contains("?") ? "&" : "?") + "currentSchema=" + schema);
+        source.setUsername(POSTGRES.getUsername());
+        source.setPassword(POSTGRES.getPassword());
+        return new BreakRecordRepository(JdbcClient.create(source));
+    }
+
+    /**
+     * The deployed V6 write path retained as executable code. It names only
+     * columns that existed before V7, exactly as the previous service did.
+     */
+    private static final class PreviousBreakService {
+        private final String schema;
+
+        private PreviousBreakService(String schema) {
+            this.schema = schema;
+        }
+
+        private void record(String cause) throws Exception {
+            execute(schema, WEEK_ONE_INSERT.replace("looks like a four for one split", cause));
+        }
     }
 }
