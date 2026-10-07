@@ -21,18 +21,32 @@ import org.springframework.web.bind.annotation.RestController;
 public final class WorkbenchApiController {
     private final String tokenDigest;
     private final ReviewRepository reviews;
-    private final ReviewWorkflow workflow = new ReviewWorkflow();
+    private final String tenantId;
+    private final String actor;
+    private final WorkbenchAuth.Role role;
 
-    public WorkbenchApiController(@Value("${basis.documents.token-digest:}") String tokenDigest, ReviewRepository reviews) {
+    public WorkbenchApiController(@Value("${basis.documents.token-digest:}") String tokenDigest,
+                                  @Value("${basis.documents.tenant-id:}") String tenantId,
+                                  @Value("${basis.documents.actor:}") String actor,
+                                  @Value("${basis.documents.role:AUDITOR}") WorkbenchAuth.Role role,
+                                  ReviewRepository reviews) {
         this.tokenDigest = tokenDigest;
+        this.tenantId = tenantId;
+        this.actor = actor;
+        this.role = role;
         this.reviews = reviews;
+    }
+
+    private WorkbenchAuth.Principal authenticate(String authorization, String requestedTenant) {
+        if (tenantId.isBlank() || actor.isBlank() || !tenantId.equals(requestedTenant)) throw new SecurityException("unauthorized");
+        return WorkbenchAuth.authenticate(authorization, tokenDigest, tenantId, role);
     }
 
     @GetMapping("/whoami")
     public ResponseEntity<Map<String, Object>> whoami(@RequestHeader(value = "Authorization", required = false) String authorization,
                                                        @RequestHeader(value = "X-Tenant-Id", required = false) String tenant) {
         try {
-            var principal = WorkbenchAuth.authenticate(authorization, tokenDigest, tenant, WorkbenchAuth.Role.UPLOADER);
+            var principal = authenticate(authorization, tenant);
             return ResponseEntity.ok(Map.of("tenantId", principal.tenantId(), "role", principal.role().name()));
         } catch (SecurityException e) {
             return ResponseEntity.status(401).body(Map.of("error", "unauthorized"));
@@ -44,7 +58,7 @@ public final class WorkbenchApiController {
                                   @RequestHeader(value = "X-Tenant-Id", required = false) String tenant,
                                   @org.springframework.web.bind.annotation.PathVariable String taskId) {
         try {
-            var principal = WorkbenchAuth.authenticate(authorization, tokenDigest, tenant, WorkbenchAuth.Role.REVIEWER);
+            var principal = authenticate(authorization, tenant);
             var task = reviews.findTask(principal.tenantId(), taskId);
             var fact = reviews.findFact(principal.tenantId(), task.factId());
             return ResponseEntity.ok(Map.of("task", task, "fact", fact));
@@ -58,19 +72,29 @@ public final class WorkbenchApiController {
     @org.springframework.web.bind.annotation.PostMapping("/review-tasks/{taskId}/decisions")
     public ResponseEntity<?> decide(@RequestHeader(value = "Authorization", required = false) String authorization,
                                     @RequestHeader(value = "X-Tenant-Id", required = false) String tenant,
+                                    @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
                                     @org.springframework.web.bind.annotation.PathVariable String taskId,
                                     @org.springframework.web.bind.annotation.RequestBody DecisionRequest request) {
         try {
-            var principal = WorkbenchAuth.authenticate(authorization, tokenDigest, tenant, WorkbenchAuth.Role.REVIEWER);
-            var task = reviews.findTask(principal.tenantId(), taskId);
-            var fact = reviews.findFact(principal.tenantId(), task.factId());
-            var decision = workflow.decide(task, fact, request.expectedVersion(), request.action(), request.actor(),
-                    request.reason(), request.correction());
-            reviews.appendDecision(principal.tenantId(), decision);
+            var principal = authenticate(authorization, tenant);
+            WorkbenchAuth.requireReviewer(principal);
+            if (idempotencyKey == null || idempotencyKey.isBlank() || idempotencyKey.length() > 128) throw new IllegalArgumentException("Idempotency-Key must be 1..128 characters");
+            if (request.action() == null) throw new IllegalArgumentException("action is required");
+            var decision = reviews.decide(principal.tenantId(), taskId, idempotencyKey,
+                    new ReviewWorkflow.Command(request.expectedVersion(), request.action(), actor, request.reason(), request.correction()));
             return ResponseEntity.ok(Map.of("task", decision.task(), "fact", decision.fact(), "action", decision.action()));
         } catch (SecurityException e) {
             return ResponseEntity.status(401).body(Map.of("error", "unauthorized"));
-        } catch (IllegalStateException | IllegalArgumentException e) {
+        } catch (IllegalStateException e) {
+            if (e.getMessage().startsWith("idempotency key")) {
+                return ResponseEntity.status(409).body(Map.of("error", e.getMessage()));
+            }
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (org.springframework.dao.EmptyResultDataAccessException e) {
+            return ResponseEntity.notFound().build();
+        } catch (UnsupportedOperationException e) {
+            return ResponseEntity.unprocessableEntity().body(Map.of("error", e.getMessage()));
+        } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }

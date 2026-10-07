@@ -6,5 +6,5 @@ import com.basis.documents.domain.ReviewTask;
 public interface ReviewRepository {
     ReviewTask findTask(String tenantId, String taskId);
     NormalizedFact findFact(String tenantId, String factId);
-    void appendDecision(String tenantId, ReviewWorkflow.Decision decision);
+    ReviewWorkflow.Decision decide(String tenantId, String taskId, String key, ReviewWorkflow.Command command);
 }
