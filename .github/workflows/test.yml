@@ -14,7 +14,7 @@ name: tests
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
 
 concurrency:
@@ -45,7 +45,7 @@ jobs:
           restore-keys: gradle-${{ runner.os }}-
 
       - name: Test
-        run: ./gradlew test --console=plain
+        run: ./gradlew test --console=plain --no-daemon --max-workers=2
 
       - name: Publish results
         if: always()
