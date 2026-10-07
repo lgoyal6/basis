@@ -47,6 +47,8 @@ server:
   forward-headers-strategy: framework
 
 basis:
+  documents:
+    token-digest: ${BASIS_DOCUMENTS_TOKEN_DIGEST:}
   # Only read under "basis serve". A public endpoint's limits are an operational decision
   # rather than a design one, so they live in config where they can be changed per deploy.
   web:
