@@ -7,7 +7,7 @@ import org.springframework.stereotype.Repository;
 
 /** Append-only event adapter. Publishing is deliberately separate from the transaction that appends. */
 @Repository
-public final class JdbcOutbox implements Outbox {
+public class JdbcOutbox implements Outbox {
     private final JdbcTemplate jdbc;
 
     public JdbcOutbox(JdbcTemplate jdbc) {
