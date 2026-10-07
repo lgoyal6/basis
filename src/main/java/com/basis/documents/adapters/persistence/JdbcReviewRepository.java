@@ -17,7 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** PostgreSQL adapter for the append-only document review workflow. */
 @Repository
-public final class JdbcReviewRepository implements ReviewRepository {
+public class JdbcReviewRepository implements ReviewRepository {
     private final JdbcTemplate jdbc;
 
     public JdbcReviewRepository(JdbcTemplate jdbc) {
