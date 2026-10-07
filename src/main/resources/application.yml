@@ -49,6 +49,9 @@ server:
 basis:
   documents:
     token-digest: ${BASIS_DOCUMENTS_TOKEN_DIGEST:}
+    tenant-id: ${BASIS_DOCUMENTS_TENANT_ID:}
+    actor: ${BASIS_DOCUMENTS_ACTOR:}
+    role: ${BASIS_DOCUMENTS_ROLE:AUDITOR}
   # Only read under "basis serve". A public endpoint's limits are an operational decision
   # rather than a design one, so they live in config where they can be changed per deploy.
   web:

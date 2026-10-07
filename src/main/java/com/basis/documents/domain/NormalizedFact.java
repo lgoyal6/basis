@@ -1,8 +1,10 @@
 package com.basis.documents.domain;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.Objects;
+import java.util.UUID;
 
 /** A value derived from an immutable extraction. Corrections must use {@link #corrected}. */
 public record NormalizedFact(
@@ -26,7 +28,11 @@ public record NormalizedFact(
     public static NormalizedFact corrected(NormalizedFact oldFact, String newId, BigDecimal newValue, String reason) {
         Objects.requireNonNull(reason); if (reason.isBlank()) throw new IllegalArgumentException("correction reason is required");
         if (!oldFact.status.canTransitionTo(FactStatus.SUPERSEDED)) throw new IllegalStateException("fact is not correctable");
-        return new NormalizedFact(newId, oldFact.issuer, oldFact.factType, oldFact.context, oldFact.periodStart, oldFact.periodEnd,
+        String correctionId = newId == null || newId.isBlank()
+                ? UUID.nameUUIDFromBytes((oldFact.id + "\u0000" + newValue.toPlainString() + "\u0000" + reason)
+                        .getBytes(StandardCharsets.UTF_8)).toString()
+                : newId;
+        return new NormalizedFact(correctionId, oldFact.issuer, oldFact.factType, oldFact.context, oldFact.periodStart, oldFact.periodEnd,
                 newValue, oldFact.rawValue, oldFact.unit, oldFact.currency, oldFact.sourceDocument, oldFact.sourceVersion,
                 oldFact.location, oldFact.method, oldFact.confidencePermille, FactStatus.APPROVED, oldFact.id);
     }

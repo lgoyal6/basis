@@ -31,5 +31,14 @@ class ReviewWorkflowTest {
         var decision = new ReviewWorkflow().decide(new ReviewTask("t", "f", "x", 0, true), fact(), 0, ReviewAction.CORRECT, "r", "footnote", new BigDecimal("11"));
         assertThat(decision.fact().supersedesFactId()).isEqualTo("f");
         assertThat(decision.fact().value()).isEqualByComparingTo("11");
+        assertThat(java.util.UUID.fromString(decision.fact().id())).isNotNull();
+        var replay = new ReviewWorkflow().decide(new ReviewTask("t", "f", "x", 0, true), fact(), 0, ReviewAction.CORRECT, "r", "footnote", new BigDecimal("11"));
+        assertThat(replay.fact().id()).isEqualTo(decision.fact().id());
+    }
+
+    @Test void taskCannotBeUsedWithAnotherFact() {
+        assertThatThrownBy(() -> new ReviewWorkflow().decide(new ReviewTask("t", "other", "x", 0, true), fact(), 0,
+                ReviewAction.APPROVE, "r", "reason", null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }
