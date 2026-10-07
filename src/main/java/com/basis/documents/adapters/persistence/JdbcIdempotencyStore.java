@@ -7,7 +7,7 @@ import org.springframework.stereotype.Repository;
 
 /** Tenant-scoped idempotency claims backed by the V9 primary key. */
 @Repository
-public final class JdbcIdempotencyStore implements IdempotencyStore {
+public class JdbcIdempotencyStore implements IdempotencyStore {
     private final JdbcTemplate jdbc;
 
     public JdbcIdempotencyStore(JdbcTemplate jdbc) {
