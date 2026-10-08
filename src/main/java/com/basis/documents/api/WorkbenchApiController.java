@@ -1,6 +1,7 @@
 package com.basis.documents.api;
 
 import com.basis.documents.application.WorkbenchAuth;
+import com.basis.documents.application.DocumentIngestService;
 import com.basis.documents.application.ReviewRepository;
 import com.basis.documents.application.ReviewWorkflow;
 import com.basis.documents.domain.ReviewAction;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /** Small authenticated boundary kept out of the privacy-preserving public web profile. */
 @RestController
@@ -24,17 +26,46 @@ public final class WorkbenchApiController {
     private final String tenantId;
     private final String actor;
     private final WorkbenchAuth.Role role;
+    private final DocumentIngestService ingest;
 
     public WorkbenchApiController(@Value("${basis.documents.token-digest:}") String tokenDigest,
                                   @Value("${basis.documents.tenant-id:}") String tenantId,
                                   @Value("${basis.documents.actor:}") String actor,
                                   @Value("${basis.documents.role:AUDITOR}") WorkbenchAuth.Role role,
-                                  ReviewRepository reviews) {
+                                  ReviewRepository reviews, DocumentIngestService ingest) {
+        this.tokenDigest = tokenDigest;
+        this.tenantId = tenantId;
+        this.actor = actor;
+        this.role = role;
+        this.ingest = ingest;
+        this.reviews = reviews;
+    }
+
+    /** Kept for focused controller tests and embedders that only expose review endpoints. */
+    public WorkbenchApiController(String tokenDigest, String tenantId, String actor, WorkbenchAuth.Role role, ReviewRepository reviews) {
         this.tokenDigest = tokenDigest;
         this.tenantId = tenantId;
         this.actor = actor;
         this.role = role;
         this.reviews = reviews;
+        this.ingest = null;
+    }
+
+    @org.springframework.web.bind.annotation.PostMapping(value = "/documents", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> upload(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                    @RequestHeader(value = "X-Tenant-Id", required = false) String tenant,
+                                    @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+                                    @org.springframework.web.bind.annotation.RequestParam String documentKey,
+                                    @org.springframework.web.bind.annotation.RequestPart MultipartFile file) {
+        try {
+            var principal = authenticate(authorization, tenant);
+            WorkbenchAuth.requireUploader(principal);
+            if (ingest == null) throw new IllegalStateException("document ingest is unavailable");
+            var receipt = ingest.ingest(principal.tenantId(), documentKey, file.getOriginalFilename(), file.getContentType(), file.getSize(), file.getInputStream(), idempotencyKey);
+            return ResponseEntity.status(receipt.created() ? 201 : 200).body(receipt);
+        } catch (SecurityException e) { return ResponseEntity.status(401).body(Map.of("error", "unauthorized"));
+        } catch (IllegalArgumentException e) { return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (java.io.IOException e) { return ResponseEntity.badRequest().body(Map.of("error", "document could not be read")); }
     }
 
     private WorkbenchAuth.Principal authenticate(String authorization, String requestedTenant) {
