@@ -28,6 +28,7 @@ public final class WorkbenchApiController {
     private final WorkbenchAuth.Role role;
     private final DocumentIngestService ingest;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public WorkbenchApiController(@Value("${basis.documents.token-digest:}") String tokenDigest,
                                   @Value("${basis.documents.tenant-id:}") String tenantId,
                                   @Value("${basis.documents.actor:}") String actor,
@@ -65,6 +66,9 @@ public final class WorkbenchApiController {
             return ResponseEntity.status(receipt.created() ? 201 : 200).body(receipt);
         } catch (SecurityException e) { return ResponseEntity.status(401).body(Map.of("error", "unauthorized"));
         } catch (IllegalArgumentException e) { return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (IllegalStateException e) {
+            if (e.getMessage().startsWith("idempotency key")) return ResponseEntity.status(409).body(Map.of("error", e.getMessage()));
+            throw e;
         } catch (java.io.IOException e) { return ResponseEntity.badRequest().body(Map.of("error", "document could not be read")); }
     }
 
