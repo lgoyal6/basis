@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "description": "Synthetic, non-sensitive financial labels rendered as scanned-page PNGs.",
+  "cases": [
+    {"image": "revenue.png", "expected": [{"field": "TOTAL REVENUE", "value": "1250"}]},
+    {"image": "income.png", "expected": [{"field": "NET INCOME", "value": "840"}]},
+    {"image": "cash.png", "expected": [{"field": "CASH BALANCE", "value": "760"}]},
+    {"image": "cost_low_contrast.png", "expected": [{"field": "OPERATING COST", "value": "310"}]}
+  ]
+}
