@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 
 /** Stage adapters return JSON artifacts; database checkpoints and events are committed together. */
 public final class DurablePipelineWorker {
@@ -30,7 +31,15 @@ public final class DurablePipelineWorker {
     }
 
     public boolean runOnce(String tenantId, Map<PipelineStage, Stage> stages) {
-        if (!stages.keySet().containsAll(java.util.List.of(PipelineStage.values()))) throw new IllegalArgumentException("every stage needs an adapter before claiming jobs");
+        if (stages == null || !stages.keySet().containsAll(java.util.List.of(PipelineStage.values()))) {
+            throw new IllegalArgumentException("every stage needs an adapter before claiming jobs");
+        }
+        return runOnce(tenantId, ignored -> stages);
+    }
+
+    /** Claims first, then builds callbacks from the lease's version and tenant. */
+    public boolean runOnce(String tenantId, Function<JobLease, Map<PipelineStage, Stage>> stageFactory) {
+        Objects.requireNonNull(stageFactory);
         var claimed = jobs.claim(tenantId, owner, clock.instant(), leaseDuration);
         if (claimed.isEmpty()) return false;
         JobLease lease = claimed.get();
@@ -38,6 +47,9 @@ public final class DurablePipelineWorker {
             jobs.fail(lease, "attempt budget exhausted after worker restart", JobStatus.DEAD, null, clock.instant());
             return true;
         }
+        Map<PipelineStage, Stage> stages = stageFactory.apply(lease);
+        if (stages == null) throw new IllegalArgumentException("stage factory returned null");
+        if (!stages.keySet().containsAll(java.util.List.of(PipelineStage.values()))) throw new IllegalArgumentException("stage factory must provide every adapter");
         try {
             int first = lease.job().checkpoint() == null ? 0 : lease.job().checkpoint().ordinal() + 1;
             for (int i = first; i < PipelineStage.values().length; i++) {
