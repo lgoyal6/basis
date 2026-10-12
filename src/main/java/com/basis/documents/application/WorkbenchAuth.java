@@ -26,6 +26,9 @@ public final class WorkbenchAuth {
     public static void requireUploader(Principal principal) {
         if (principal == null || (principal.role() != Role.UPLOADER && principal.role() != Role.REVIEWER)) throw new SecurityException("uploader role required");
     }
+    public static void requireExport(Principal principal) {
+        if (principal == null || (principal.role() != Role.REVIEWER && principal.role() != Role.AUDITOR)) throw new SecurityException("reviewer or auditor role required");
+    }
 
     private static String digest(String token) {
         try {

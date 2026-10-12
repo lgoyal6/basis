@@ -7,6 +7,8 @@ import com.basis.documents.domain.FactUnit;
 import com.basis.documents.domain.NormalizedFact;
 import com.basis.documents.domain.NumberNormalizer;
 import com.basis.documents.domain.PipelineStage;
+import com.basis.documents.domain.Reconciler;
+import com.basis.documents.domain.ReconciliationResult;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
@@ -23,7 +25,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 /** Bridges durable job stages to immutable documents and append-only facts. */
 @Service
-public final class DocumentPipelineService {
+public class DocumentPipelineService {
     private static final int REVIEW_THRESHOLD = 800;
     private final JdbcTemplate jdbc;
     private final DocumentObjectStore objects;
@@ -139,9 +141,38 @@ public final class DocumentPipelineService {
     }
 
     private String reconcile(JobLease lease) {
-        int facts = jdbc.queryForObject("select count(*) from normalized_fact where tenant_id=? and source_version=?",
-                Integer.class, UUID.fromString(lease.tenantId()), version(lease).sha256);
-        return json(Map.of("factsCompared", facts, "classification", "UNSUPPORTED_COMPARISON", "reason", "one-document milestone; cross-document keying is next"));
+        var current = version(lease);
+        var left = jdbc.query("select id, issuer, fact_type, context, period_start, period_end, value, raw_value, unit, currency, source_document, source_version, location, extraction_method, confidence, status, supersedes_fact_id "
+                        + "from normalized_fact where tenant_id=? and source_version=? and value is not null order by id",
+                this::fact, UUID.fromString(lease.tenantId()), current.sha256);
+        int compared = 0;
+        int cases = 0;
+        for (var a : left) {
+            var right = jdbc.query("select id, issuer, fact_type, context, period_start, period_end, value, raw_value, unit, currency, source_document, source_version, location, extraction_method, confidence, status, supersedes_fact_id "
+                            + "from normalized_fact where tenant_id=? and issuer is not distinct from ? and fact_type=? and context=? and period_end=? and source_version<>? and value is not null order by id",
+                    this::fact, UUID.fromString(lease.tenantId()), a.issuer(), a.factType(), a.context(), a.periodEnd(), a.sourceVersion());
+            for (var b : right) {
+                compared++;
+                ReconciliationResult result = Reconciler.compare(a, b);
+                String first = a.id().compareTo(b.id()) < 0 ? a.id() : b.id();
+                String second = a.id().compareTo(b.id()) < 0 ? b.id() : a.id();
+                UUID caseId = UUID.nameUUIDFromBytes((lease.tenantId() + "\u0000case\u0000" + first + "\u0000" + second)
+                        .getBytes(StandardCharsets.UTF_8));
+                String explanation = json(Map.of("leftFactId", a.id(), "rightFactId", b.id(),
+                        "classification", result.classification().name(), "explanation", result.explanation()));
+                cases += jdbc.update("insert into reconciliation_case (id, tenant_id, classification, explanation, left_fact_id, right_fact_id) values (?, ?, ?, ?::jsonb, ?, ?) on conflict (id) do nothing",
+                        caseId, UUID.fromString(lease.tenantId()), result.classification().name(), explanation, UUID.fromString(first), UUID.fromString(second));
+            }
+        }
+        return json(Map.of("factsCompared", compared, "casesCreated", cases, "crossDocument", true));
+    }
+
+    private NormalizedFact fact(java.sql.ResultSet rs, int ignored) throws java.sql.SQLException {
+        return new NormalizedFact(rs.getString("id"), rs.getString("issuer"), rs.getString("fact_type"), rs.getString("context"),
+                rs.getObject("period_start", LocalDate.class), rs.getObject("period_end", LocalDate.class), rs.getBigDecimal("value"),
+                rs.getString("raw_value"), unit(rs.getString("unit")), rs.getString("currency"), rs.getString("source_document"),
+                rs.getString("source_version"), rs.getString("location"), ExtractionMethod.valueOf(rs.getString("extraction_method")),
+                rs.getInt("confidence"), FactStatus.valueOf(rs.getString("status")), rs.getString("supersedes_fact_id"));
     }
 
     @Transactional

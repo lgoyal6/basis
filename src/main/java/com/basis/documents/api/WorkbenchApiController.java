@@ -4,6 +4,7 @@ import com.basis.documents.application.WorkbenchAuth;
 import com.basis.documents.application.DocumentIngestService;
 import com.basis.documents.application.ReviewRepository;
 import com.basis.documents.application.ReviewWorkflow;
+import com.basis.documents.application.ApprovedFactExportService;
 import com.basis.documents.domain.ReviewAction;
 import java.math.BigDecimal;
 import java.util.Map;
@@ -27,20 +28,7 @@ public final class WorkbenchApiController {
     private final String actor;
     private final WorkbenchAuth.Role role;
     private final DocumentIngestService ingest;
-
-    @org.springframework.beans.factory.annotation.Autowired
-    public WorkbenchApiController(@Value("${basis.documents.token-digest:}") String tokenDigest,
-                                  @Value("${basis.documents.tenant-id:}") String tenantId,
-                                  @Value("${basis.documents.actor:}") String actor,
-                                  @Value("${basis.documents.role:AUDITOR}") WorkbenchAuth.Role role,
-                                  ReviewRepository reviews, DocumentIngestService ingest) {
-        this.tokenDigest = tokenDigest;
-        this.tenantId = tenantId;
-        this.actor = actor;
-        this.role = role;
-        this.ingest = ingest;
-        this.reviews = reviews;
-    }
+    private final ApprovedFactExportService exports;
 
     /** Kept for focused controller tests and embedders that only expose review endpoints. */
     public WorkbenchApiController(String tokenDigest, String tenantId, String actor, WorkbenchAuth.Role role, ReviewRepository reviews) {
@@ -50,6 +38,30 @@ public final class WorkbenchApiController {
         this.role = role;
         this.reviews = reviews;
         this.ingest = null;
+        this.exports = null;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public WorkbenchApiController(@Value("${basis.documents.token-digest:}") String tokenDigest,
+                                  @Value("${basis.documents.tenant-id:}") String tenantId,
+                                  @Value("${basis.documents.actor:}") String actor,
+                                  @Value("${basis.documents.role:AUDITOR}") WorkbenchAuth.Role role,
+                                  ReviewRepository reviews, DocumentIngestService ingest,
+                                  ApprovedFactExportService exports) {
+        this.tokenDigest = tokenDigest; this.tenantId = tenantId; this.actor = actor; this.role = role;
+        this.reviews = reviews; this.ingest = ingest; this.exports = exports;
+    }
+
+    @org.springframework.web.bind.annotation.GetMapping(value = "/documents/export", produces = "text/csv")
+    public ResponseEntity<?> export(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                    @RequestHeader(value = "X-Tenant-Id", required = false) String tenant) {
+        try {
+            var principal = authenticate(authorization, tenant);
+            WorkbenchAuth.requireExport(principal);
+            if (exports == null) throw new IllegalStateException("approved export is unavailable");
+            return ResponseEntity.ok().header("Content-Disposition", "attachment; filename=approved-facts.csv")
+                    .body(exports.export(principal.tenantId()));
+        } catch (SecurityException e) { return ResponseEntity.status(401).body(Map.of("error", "unauthorized")); }
     }
 
     @org.springframework.web.bind.annotation.PostMapping(value = "/documents", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
