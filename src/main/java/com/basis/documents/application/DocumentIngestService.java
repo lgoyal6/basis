@@ -4,6 +4,7 @@ import java.io.InputStream;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.UUID;
+import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,7 +14,10 @@ import org.springframework.transaction.annotation.Transactional;
 public class DocumentIngestService {
     private final JdbcTemplate jdbc;
     private final DocumentObjectStore objects;
-    public DocumentIngestService(JdbcTemplate jdbc, DocumentObjectStore objects) { this.jdbc = jdbc; this.objects = objects; }
+    private final List<DocumentExtractor> extractors;
+    public DocumentIngestService(JdbcTemplate jdbc, DocumentObjectStore objects, List<DocumentExtractor> extractors) {
+        this.jdbc = jdbc; this.objects = objects; this.extractors = List.copyOf(extractors);
+    }
 
     @Transactional
     public Receipt ingest(String tenantId, String documentKey, String filename, String mediaType, long size, InputStream input, String idempotencyKey) {
@@ -31,9 +35,10 @@ public class DocumentIngestService {
         requireText(documentKey, "documentKey", 256);
         requireText(filename, "filename", 255);
         requireText(idempotencyKey, "Idempotency-Key", 128);
-        // Only registered extractors may accept an upload. Broader formats are enabled
-        // together with their adapters, rather than failing later in a background job.
-        if (!"text/csv".equals(mediaType)) throw new IllegalArgumentException("unsupported format; upload text/csv");
+        // Only a registered adapter may accept an upload. This keeps unsupported formats
+        // out of the durable queue instead of discovering them after a worker claims a job.
+        boolean supported = extractors.stream().anyMatch(extractor -> extractor.supports(mediaType, filename));
+        if (!supported) throw new IllegalArgumentException("unsupported format; supported formats are CSV, PDF text, and XLSX");
         if (bytes == null || bytes.length == 0 || bytes.length > 50 * 1024 * 1024) throw new IllegalArgumentException("document size is unsupported");
         UUID tenant = uuid(tenantId);
         String hash = sha256(bytes);

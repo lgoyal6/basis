@@ -28,6 +28,10 @@ dependencies {
     // renders what the server computed. See docs/ARCHITECTURE.md section 30.
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-thymeleaf")
+    // Document adapters are deliberately kept behind DocumentExtractor. PDFBox and
+    // POI parse bytes locally; OCR remains a provider boundary for scanned pages.
+    implementation("org.apache.pdfbox:pdfbox:3.0.5")
+    implementation("org.apache.poi:poi-ooxml:5.4.1")
     implementation("org.flywaydb:flyway-core")
     runtimeOnly("org.flywaydb:flyway-database-postgresql")
     runtimeOnly("org.postgresql:postgresql")
