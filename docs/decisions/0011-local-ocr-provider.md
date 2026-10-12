@@ -10,3 +10,8 @@ leaves the adapter unavailable instead of accepting work that cannot run.
 The adapter does not approve or normalize financial facts. Review and
 provenance validation remain responsible for deciding whether an OCR value can
 enter reconciliation.
+
+The local adapter bounds each input to 50 MiB, each PDF to 20 pages, each
+provider process to 30 seconds, and captured stdout or stderr to 1 MiB. It
+destroys child processes on timeout or failure and deletes its temporary source
+and raster files after every attempt.
