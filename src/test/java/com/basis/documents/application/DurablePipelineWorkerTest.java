@@ -13,6 +13,7 @@ import java.util.EnumMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class DurablePipelineWorkerTest {
@@ -42,6 +43,22 @@ class DurablePipelineWorkerTest {
         assertThat(jobs.failure).isEqualTo("IllegalStateException");
         assertThat(jobs.failureStatus).isEqualTo(JobStatus.QUEUED);
         assertThat(jobs.completed).isFalse();
+    }
+
+    @Test
+    void stageFactoryReceivesTheClaimedLeaseBeforeStagesRun() {
+        FakeJobs jobs = new FakeJobs();
+        AtomicReference<JobLease> received = new AtomicReference<>();
+        AtomicInteger ran = new AtomicInteger();
+
+        new DurablePipelineWorker(jobs, "worker-a", Duration.ofMinutes(1), 3, Clock.fixed(NOW, ZoneOffset.UTC))
+                .runOnce("tenant", lease -> {
+                    received.set(lease);
+                    return stages(ran);
+                });
+
+        assertThat(received.get()).isSameAs(jobs.lease);
+        assertThat(ran).hasValue(PipelineStage.values().length);
     }
 
     private static Map<PipelineStage, DurablePipelineWorker.Stage> stages(AtomicInteger ran) {
