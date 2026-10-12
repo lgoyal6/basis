@@ -38,7 +38,7 @@ public class DocumentIngestService {
         // Only a registered adapter may accept an upload. This keeps unsupported formats
         // out of the durable queue instead of discovering them after a worker claims a job.
         boolean supported = extractors.stream().anyMatch(extractor -> extractor.supports(mediaType, filename));
-        if (!supported) throw new IllegalArgumentException("unsupported format; supported formats are CSV, PDF text, and XLSX");
+        if (!supported) throw new IllegalArgumentException("unsupported format; no registered CSV, PDF, image/OCR, or XLSX adapter accepts it");
         if (bytes == null || bytes.length == 0 || bytes.length > 50 * 1024 * 1024) throw new IllegalArgumentException("document size is unsupported");
         UUID tenant = uuid(tenantId);
         String hash = sha256(bytes);
