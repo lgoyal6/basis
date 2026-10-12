@@ -61,6 +61,32 @@ class TesseractOcrDocumentExtractorTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("OCR is unavailable");
     }
 
+    @Test void diagnosticsNeverBecomeExtractedText() throws Exception {
+        Path tool = tool("echo 'TOTAL 1250'; echo 'PRIVATE diagnostic' >&2");
+        try {
+            var extractor = new TesseractOcrDocumentExtractor(tool.toString(), "/missing/pdf");
+            var fields = extractor.extract(new ByteArrayInputStream(new byte[] {1}), "sha");
+            assertThat(fields).extracting(field -> field.rawValue()).containsExactly("TOTAL 1250");
+        } finally { Files.delete(tool); }
+    }
+
+    @Test void hungProviderTimesOutInsteadOfHoldingWorkerForever() throws Exception {
+        Path tool = tool("sleep 30");
+        Path pdfTool = tool("if [ \"$1\" = \"-v\" ]; then exit 0; fi; exit 1");
+        try {
+            var extractor = new TesseractOcrDocumentExtractor(tool.toString(), pdfTool.toString(), java.time.Duration.ofMillis(200));
+            assertThatThrownBy(() -> extractor.extract(new ByteArrayInputStream(new byte[] {1}), "sha"))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("timed out");
+        } finally { Files.delete(tool); Files.delete(pdfTool); }
+    }
+
+    private static Path tool(String body) throws Exception {
+        Path tool = Files.createTempFile("basis-test-ocr-", ".sh");
+        Files.writeString(tool, "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then exit 0; fi\n" + body + "\n");
+        assertThat(tool.toFile().setExecutable(true)).isTrue();
+        return tool;
+    }
+
     private static byte[] image(String text) throws Exception {
         BufferedImage image = new BufferedImage(1600, 240, BufferedImage.TYPE_INT_RGB);
         Graphics2D graphics = image.createGraphics();
