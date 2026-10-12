@@ -12,8 +12,10 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.stereotype.Component;
 
 /** Conservative CSV adapter: preserves the source row and routes ambiguous rows for review. */
+@Component
 public final class CsvDocumentExtractor implements DocumentExtractor {
     @Override public boolean supports(String mediaType, String filename) {
         return "text/csv".equalsIgnoreCase(mediaType) || (filename != null && filename.toLowerCase().endsWith(".csv"));
