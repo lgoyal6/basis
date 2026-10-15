@@ -1,3 +1,7 @@
+/* Stores immutable originals and creates one durable document job per upload.
+ * Uses DocumentObjectStore and registered extractors before PostgreSQL persistence.
+ * Tenant serialization binds retries and advances the current source only for new bytes.
+ */
 package com.basis.documents.application;
 
 import java.io.InputStream;
@@ -72,6 +76,7 @@ public class DocumentIngestService {
         UUID actual = jdbc.queryForObject("select id from document where tenant_id = ? and document_key = ?", UUID.class, tenant, documentKey);
         jdbc.update("insert into document_version(id,tenant_id,document_id,sha256,filename,media_type,size_bytes,object_key,correlation_id) values (?,?,?,?,?,?,?,?,?) on conflict (tenant_id,sha256) do nothing", version, tenant, actual, hash, filename, mediaType, bytes.length, object.key(), job.toString());
         UUID actualVersion = jdbc.queryForObject("select id from document_version where tenant_id = ? and sha256 = ?", UUID.class, tenant, hash);
+        jdbc.update("update document set current_version_id=? where tenant_id=? and id=?", actualVersion, tenant, actual);
         jdbc.update("insert into processing_job(id,tenant_id,version_id,idempotency_key,correlation_id) values (?,?,?,?,?)", job, tenant, actualVersion, idempotencyKey, job.toString());
         jdbc.update("insert into outbox_event(id,tenant_id,event_type,payload) values (?,?,?,?::jsonb)", UUID.randomUUID(), tenant, "document.ingested", "{\"jobId\":\"" + job + "\",\"versionId\":\"" + actualVersion + "\"}");
         remember(tenant, idempotencyKey, requestHash, job);

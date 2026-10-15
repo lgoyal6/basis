@@ -1,3 +1,7 @@
+/* Checks durable ingest, retries and current-source pointers in PostgreSQL.
+ * Exercises DocumentIngestService and its authenticated multipart entry point.
+ * Duplicate content must keep one job; failed outbox writes must roll back.
+ */
 package com.basis.documents.adapters.persistence;
 
 import static org.assertj.core.api.Assertions.*;
@@ -109,4 +113,14 @@ class DocumentIngestPersistenceTest {
                 .header("Authorization", "Bearer test-token").header("X-Tenant-Id", UUID.randomUUID()).header("Idempotency-Key", "other"))
                 .andExpect(status().isUnauthorized());
     }
+    @Test void newSourceAdvancesPointerButRetryOfOldBytesDoesNot() {
+        var first = upload("version-1", bytes);
+        var second = upload("version-2", "revenue,11,2025-12-31\n".getBytes(StandardCharsets.UTF_8));
+        assertThat(second.created()).isTrue();
+        assertThat(upload("version-1", bytes).jobId()).isEqualTo(first.jobId());
+        assertThat(upload("old-alias", bytes).jobId()).isEqualTo(first.jobId());
+        assertThat(db.queryForObject("select v.sha256 from document d join document_version v on v.id=d.current_version_id where d.tenant_id=?", String.class, TENANT)).isEqualTo(second.sha256());
+        assertThat(db.queryForObject("select count(*) from document_version where tenant_id=?", Integer.class, TENANT)).isEqualTo(2);
+    }
+
 }

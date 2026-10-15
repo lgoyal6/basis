@@ -1,3 +1,7 @@
+/* Persists review decisions, exact result facts and retry responses atomically.
+ * Shares the tenant lock with DocumentIngestService before checking source freshness.
+ * Review task and fact locks prevent conflicting decisions; outbox failure rolls back.
+ */
 package com.basis.documents.adapters.persistence;
 
 import com.basis.documents.application.ReviewRepository;
@@ -62,6 +66,8 @@ public class JdbcReviewRepository implements ReviewRepository {
         String request = encode(payload);
         String hash = hash(request);
         UUID tenant = uuid(tenantId);
+        // Match ingest's lock order so a new source and an approval are serialized.
+        jdbc.queryForObject("select id from doc_tenant where id=? for update", UUID.class, tenant);
         // The unique key serializes concurrent retries. The claim rolls back with the mutation.
         int inserted = jdbc.update("insert into idempotency_key (tenant_id, key, request_hash) values (?, ?, ?) on conflict do nothing", tenant, key, hash);
         if (inserted == 0) {
@@ -73,6 +79,10 @@ public class JdbcReviewRepository implements ReviewRepository {
         ReviewTask task = jdbc.queryForObject("select id, fact_id, reason, version, status from review_task where tenant_id = ? and id = ? for update", this::task, tenant, uuid(taskId));
         jdbc.queryForObject("select id from normalized_fact where tenant_id = ? and id = ? for update", UUID.class, tenant, uuid(task.factId()));
         var fact = findFact(tenantId, task.factId());
+        Boolean stale = jdbc.queryForObject("select exists (select 1 from document d left join document_version v on v.id=d.current_version_id and v.document_id=d.id and v.tenant_id=d.tenant_id "
+                + "where d.tenant_id=? and d.document_key=? and v.sha256 is distinct from ?)",
+                Boolean.class, tenant, fact.sourceDocument(), fact.sourceVersion());
+        if (Boolean.TRUE.equals(stale)) throw new IllegalStateException("review source version is no longer current");
         var decision = new ReviewWorkflow().decide(task, fact, command.expectedVersion(), command.action(), command.actor(), command.reason(), command.correction());
         appendDecisionInternal(tenantId, decision);
         String response = encode(decision);
@@ -122,10 +132,10 @@ public class JdbcReviewRepository implements ReviewRepository {
                     decision.fact().status().name(), tenant, fact);
         }
 
-        jdbc.update("insert into review_decision (id, tenant_id, task_id, fact_id, actor, action, reason, previous_status, new_status) "
-                        + "values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        jdbc.update("insert into review_decision (id, tenant_id, task_id, fact_id, actor, action, reason, previous_status, new_status, result_fact_id) "
+                        + "values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 UUID.randomUUID(), tenant, task, fact, decision.actor(), decision.action().name(), decision.reason(),
-                previousStatus, decision.fact().status().name());
+                previousStatus, decision.fact().status().name(), uuid(decision.fact().id()));
     }
 
     private void insertFact(UUID tenant, NormalizedFact fact) {
