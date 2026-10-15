@@ -1,3 +1,7 @@
+/* Stores local originals in tenant-scoped content-addressed files.
+ * DocumentIngestService and DocumentPipelineService use its object-store port.
+ * Publishes only complete verified bytes; the configured root must be private.
+ */
 package com.basis.documents.adapters.persistence;
 
 import com.basis.documents.application.DocumentObjectStore;
@@ -11,10 +15,12 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /** Content-addressed local adapter. The configured directory must be private to the service. */
 @Component
+@ConditionalOnProperty(prefix = "basis.documents", name = "object-store", havingValue = "local", matchIfMissing = true)
 public final class LocalDocumentObjectStore implements DocumentObjectStore {
     private final Path root;
 

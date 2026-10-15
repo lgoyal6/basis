@@ -1,3 +1,7 @@
+/* Checks immutable local publication and tenant-separated object access.
+ * Exercises LocalDocumentObjectStore with bounded files and competing writers.
+ * Corrupt, truncated and symlink inputs must not become successful originals.
+ */
 package com.basis.documents.adapters.persistence;
 
 import static org.assertj.core.api.Assertions.*;
@@ -50,4 +54,13 @@ class LocalDocumentObjectStoreTest {
         Files.write(root.resolve(tenant).resolve(hash() + ".blob"), new byte[bytes.length]);
         assertThatThrownBy(() -> store.put(tenant, hash(), new ByteArrayInputStream(bytes), bytes.length)).isInstanceOf(IllegalStateException.class);
     }
+    @Test void sameHashInAnotherTenantIsNotReadableUntilSeparatelyUploaded() throws Exception {
+        var store = new LocalDocumentObjectStore(root.toString());
+        var other = UUID.randomUUID().toString();
+        store.put(tenant, hash(), new ByteArrayInputStream(bytes), bytes.length);
+        assertThatThrownBy(() -> store.get(other, hash())).isInstanceOf(IllegalStateException.class);
+        store.put(other, hash(), new ByteArrayInputStream(bytes), bytes.length);
+        try (var in = store.get(other, hash())) { assertThat(in.readAllBytes()).isEqualTo(bytes); }
+    }
+
 }
