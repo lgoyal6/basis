@@ -1,3 +1,6 @@
+// Builds the Java service and its local integration tests.
+// Shares the application classpath with the Docker build.
+// Cloud SDK dependencies provide optional adapters; network tests stay opt-in.
 plugins {
     java
     id("org.springframework.boot") version "3.5.16"
@@ -35,6 +38,12 @@ dependencies {
     implementation("org.flywaydb:flyway-core")
     runtimeOnly("org.flywaydb:flyway-database-postgresql")
     runtimeOnly("org.postgresql:postgresql")
+
+    // Optional document-object-store adapters. Cloud SDKs are only selected when the
+    // corresponding basis.documents.object-store property is set.
+    implementation(platform("software.amazon.awssdk:bom:2.31.78"))
+    implementation("software.amazon.awssdk:s3")
+    implementation("com.google.cloud:google-cloud-storage:2.52.3")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // Test scope on purpose. The contract is a build time artifact, not a runtime endpoint.

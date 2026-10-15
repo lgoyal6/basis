@@ -38,8 +38,20 @@ pattern: dry run when credentials are absent):
   `exp` and an HMAC over `(tenant, object key, exp)`; the blob endpoint verifies the signature
   and expiry in constant time before reading anything.
 
-An S3 adapter is not shipped. The port is three methods (`put`, `get`, `delete`), and the
-limitations section says so.
+The `DocumentObjectStore` port keeps the application independent of the storage vendor.
+The default is local filesystem storage. Set `BASIS_DOCUMENTS_OBJECT_STORE=s3` with
+`basis.documents.s3.bucket` and `basis.documents.s3.region` to use AWS S3, or set it to
+`gcs` with `basis.documents.gcs.bucket` to use Google Cloud Storage. The S3 client uses the
+AWS SDK default credential chain; the GCS client uses Application Default Credentials.
+
+Both cloud adapters use the same `tenant/<sha256>.blob` key, enforce the 50 MiB bound, and
+verify content hashes on upload and read. S3 uses `If-None-Match: *` for conditional create
+and requests SSE-S3 (`AES256`). GCS uses the generation-match-zero precondition through
+`BlobWriteOption.doesNotExist()`; Cloud Storage's provider-managed at-rest encryption remains
+enabled. A precondition conflict is treated as an idempotent duplicate only after the stored
+object is read and verified. Cloud SDK tests exercise these contracts with mocked clients;
+they do not establish live account, policy, or deployment evidence. Customer-managed KMS keys
+are not configured by these adapters.
 
 ### In transit
 

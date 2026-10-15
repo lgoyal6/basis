@@ -1,3 +1,6 @@
+# Shared CLI and web configuration for the Java service.
+# Document components use an optional object-store adapter and configured tenant token.
+# Local storage is the default; provider credentials stay in their SDK chains.
 spring:
   servlet:
     multipart:
@@ -48,6 +51,7 @@ server:
 
 basis:
   documents:
+    object-store: ${BASIS_DOCUMENTS_OBJECT_STORE:local}
     token-digest: ${BASIS_DOCUMENTS_TOKEN_DIGEST:}
     tenant-id: ${BASIS_DOCUMENTS_TENANT_ID:}
     actor: ${BASIS_DOCUMENTS_ACTOR:}
