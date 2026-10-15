@@ -58,10 +58,10 @@ class TesseractOcrDocumentExtractorTest {
     }
 
     @Test
-    void unavailableToolchainDoesNotAdvertiseOcrSupport() {
+    void unavailableToolchainDoesNotAdvertiseOcrSupport() throws Exception {
         var extractor = new TesseractOcrDocumentExtractor("/missing/tesseract", "/missing/pdftoppm");
         assertThat(extractor.supports("application/pdf", "scan.pdf")).isFalse();
-        assertThatThrownBy(() -> extractor.extract(new ByteArrayInputStream(new byte[] {1}), "sha"))
+        assertThatThrownBy(() -> extractor.extract(new ByteArrayInputStream(smallImage("png")), "sha"))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("OCR is unavailable");
     }
 
@@ -69,7 +69,7 @@ class TesseractOcrDocumentExtractorTest {
         Path tool = tool("echo 'TOTAL 1250'; echo 'PRIVATE diagnostic' >&2");
         try {
             var extractor = new TesseractOcrDocumentExtractor(tool.toString(), "/missing/pdf");
-            var fields = extractor.extract(new ByteArrayInputStream(new byte[] {1}), "sha");
+            var fields = extractor.extract(new ByteArrayInputStream(smallImage("png")), "sha");
             assertThat(fields).extracting(field -> field.rawValue()).containsExactly("TOTAL 1250");
         } finally { Files.delete(tool); }
     }
@@ -79,7 +79,7 @@ class TesseractOcrDocumentExtractorTest {
         Path pdfTool = tool("if [ \"$1\" = \"-v\" ]; then exit 0; fi; exit 1");
         try {
             var extractor = new TesseractOcrDocumentExtractor(tool.toString(), pdfTool.toString(), java.time.Duration.ofMillis(200));
-            assertThatThrownBy(() -> extractor.extract(new ByteArrayInputStream(new byte[] {1}), "sha"))
+            assertThatThrownBy(() -> extractor.extract(new ByteArrayInputStream(smallImage("png")), "sha"))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("timed out");
         } finally { Files.delete(tool); Files.delete(pdfTool); }
     }
@@ -91,11 +91,102 @@ class TesseractOcrDocumentExtractorTest {
         return tool;
     }
 
+    @Test void compressedImagesCannotBypassDecodedDimensionAndPixelLimits() throws Exception {
+        Path tool = recordingTool();
+        Path invoked = Path.of(tool + ".invoked");
+        try {
+            var extractor = new TesseractOcrDocumentExtractor(tool.toString(), "/missing/pdf");
+            for (int[] dimensions : java.util.List.of(new int[] {10_001, 1}, new int[] {5_000, 4_001})) {
+                byte[] compressed = compressedPng(dimensions[0], dimensions[1]);
+                assertThat(compressed).hasSizeLessThan(100_000);
+                assertThatThrownBy(() -> extractor.extract(new ByteArrayInputStream(compressed), "oversized"))
+                        .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("image dimensions");
+                assertThat(invoked).doesNotExist();
+            }
+        } finally { Files.deleteIfExists(invoked); Files.delete(tool); }
+    }
+
+    @Test void validImageHeadersAtTheLimitsReachOcr() throws Exception {
+        Path tool = tool("echo 'TOTAL 1250'");
+        try {
+            var extractor = new TesseractOcrDocumentExtractor(tool.toString(), "/missing/pdf");
+            for (byte[] image : java.util.List.of(compressedPng(10_000, 1), compressedPng(5_000, 4_000),
+                    smallImage("jpeg"), smallTiff(20))) {
+                assertThat(extractor.extract(new ByteArrayInputStream(image), "valid"))
+                        .extracting(field -> field.rawValue()).containsExactly("TOTAL 1250");
+            }
+        } finally { Files.delete(tool); }
+    }
+
+    @Test void corruptOrExcessiveFrameImagesNeverReachOcr() throws Exception {
+        Path tool = recordingTool();
+        Path invoked = Path.of(tool + ".invoked");
+        try {
+            var extractor = new TesseractOcrDocumentExtractor(tool.toString(), "/missing/pdf");
+            for (byte[] bytes : java.util.List.of(new byte[] {1}, java.util.Arrays.copyOf(smallImage("png"), 24), smallTiff(21))) {
+                assertThatThrownBy(() -> extractor.extract(new ByteArrayInputStream(bytes), "invalid"))
+                        .isInstanceOf(IllegalArgumentException.class);
+                assertThat(invoked).doesNotExist();
+            }
+        } finally { Files.deleteIfExists(invoked); Files.delete(tool); }
+    }
+
+    private static Path recordingTool() throws Exception {
+        Path tool = tool("echo 'TOTAL 1250'");
+        Files.writeString(tool, Files.readString(tool).replace("#!/bin/sh\n", "#!/bin/sh\ntouch \"$0.invoked\"\n"));
+        return tool;
+    }
+
+    private static byte[] smallImage(String format) throws Exception {
+        var out = new java.io.ByteArrayOutputStream();
+        assertThat(ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), format, out)).isTrue();
+        return out.toByteArray();
+    }
+
+    private static byte[] smallTiff(int frames) throws Exception {
+        var bytes = new java.io.ByteArrayOutputStream();
+        var writer = ImageIO.getImageWritersByFormatName("tiff").next();
+        try (var out = new javax.imageio.stream.MemoryCacheImageOutputStream(bytes)) {
+            writer.setOutput(out); writer.prepareWriteSequence(null);
+            var image = new javax.imageio.IIOImage(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), null, null);
+            for (int i = 0; i < frames; i++) writer.writeToSequence(image, null);
+            writer.endWriteSequence();
+        } finally { writer.dispose(); }
+        return bytes.toByteArray();
+    }
+
+    // A valid grayscale PNG with a tiny compressed payload, built one row at a time.
+    // Generating the fixture never allocates its decoded raster or invokes a decoder.
+    private static byte[] compressedPng(int width, int height) throws Exception {
+        var bytes = new java.io.ByteArrayOutputStream();
+        var png = new java.io.DataOutputStream(bytes);
+        png.write(new byte[] {(byte) 137, 80, 78, 71, 13, 10, 26, 10});
+        var header = new java.io.ByteArrayOutputStream();
+        var data = new java.io.DataOutputStream(header);
+        data.writeInt(width); data.writeInt(height);
+        data.write(new byte[] {8, 0, 0, 0, 0});
+        pngChunk(png, "IHDR", header.toByteArray());
+        var compressed = new java.io.ByteArrayOutputStream();
+        try (var deflater = new java.util.zip.DeflaterOutputStream(compressed)) {
+            byte[] row = new byte[width + 1];
+            for (int i = 0; i < height; i++) deflater.write(row);
+        }
+        pngChunk(png, "IDAT", compressed.toByteArray());
+        pngChunk(png, "IEND", new byte[0]);
+        return bytes.toByteArray();
+    }
+
+    private static void pngChunk(java.io.DataOutputStream png, String type, byte[] content) throws Exception {
+        byte[] name = type.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+        var crc = new java.util.zip.CRC32(); crc.update(name); crc.update(content);
+        png.writeInt(content.length); png.write(name); png.write(content); png.writeInt((int) crc.getValue());
+    }
+
     @Test void explicitNumericCandidatesRetainRawLinesAndRejectMissingOrInvalidDates() throws Exception {
         Path tool = tool("printf 'REVENUE: 1,250.50 USD 2025-12-31\\nCOST: 30 EUR 2025-02-30\\nCASH: 50\\nASSETS: 100 SHARES 2024-12-31\\n'");
         try {
             var fields = new TesseractOcrDocumentExtractor(tool.toString(), "/missing/pdf")
-                    .extract(new ByteArrayInputStream(new byte[] {1}), "version");
+                    .extract(new ByteArrayInputStream(smallImage("png")), "version");
             assertThat(fields.stream().filter(f -> f.label().equals("text"))).hasSize(4);
             var numeric = fields.stream().filter(f -> f.periodEnd() != null).toList();
             assertThat(numeric).hasSize(2);
@@ -112,7 +203,7 @@ class TesseractOcrDocumentExtractorTest {
         Path tool = tool("printf 'REVENUE: 1,,250 USD 2025-12-31\\nCASH: 1,25 USD 2025-12-31\\n'");
         try {
             var fields = new TesseractOcrDocumentExtractor(tool.toString(), "/missing/pdf")
-                    .extract(new ByteArrayInputStream(new byte[] {1}), "version");
+                    .extract(new ByteArrayInputStream(smallImage("png")), "version");
             assertThat(fields).hasSize(2);
             assertThat(fields).allMatch(field -> field.label().equals("text") && field.periodEnd() == null);
         } finally { Files.delete(tool); }

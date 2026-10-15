@@ -105,6 +105,14 @@ dates, missing amounts/units/dates and free-form prose stay raw evidence. Both r
 and candidate locations retain page, line and immutable source version. This is a
 conservative structured-line parser, not a general table or filing extractor.
 
+Direct image inputs must have a format whose headers ImageIO can read, at most
+20 frames, at most 10,000 pixels on either side of every frame, and at most
+20 million pixels across all frames. Header checks run before launching OCR and
+do not decode the raster. Unsupported or corrupt headers are refused. PDF page
+limits and the existing 2,400-pixel rasterization bound remain unchanged.
+These admission limits reduce image expansion risk; they do not prove a hard
+memory bound for the external OCR process.
+
 `DocumentHttpWorkflowTest` starts the real embedded HTTP server on an ephemeral
 local port and disposable PostgreSQL, uploads a generated PNG, invokes installed
 Tesseract through the durable pipeline, checks review-required state, approves

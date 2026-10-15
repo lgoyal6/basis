@@ -9,6 +9,7 @@ import com.basis.documents.domain.ExtractedField;
 import com.basis.documents.domain.ExtractionMethod;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,6 +20,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import javax.imageio.ImageIO;
+import javax.imageio.stream.MemoryCacheImageInputStream;
 import org.apache.pdfbox.Loader;
 import org.springframework.stereotype.Component;
 
@@ -27,6 +30,8 @@ import org.springframework.stereotype.Component;
 public final class TesseractOcrDocumentExtractor implements DocumentExtractor {
     static final int MAX_BYTES = 50 * 1024 * 1024;
     static final int MAX_PAGES = 20;
+    static final int MAX_IMAGE_DIMENSION = 10_000;
+    static final long MAX_IMAGE_PIXELS = 20_000_000L;
     private static final java.util.regex.Pattern NUMERIC_LINE = java.util.regex.Pattern.compile(
             "^(REVENUE|COST|ASSETS|CASH|TAX|INCOME|TOTAL REVENUE|NET INCOME|CASH BALANCE|OPERATING COST)\\s*[:=]?\\s*"
                     + "([+-]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\\.[0-9]+)?)\\s+(USD|EUR|GBP|SHARES)\\s+(\\d{4}-\\d{2}-\\d{2})$",
@@ -69,7 +74,7 @@ public final class TesseractOcrDocumentExtractor implements DocumentExtractor {
             if (pdf) {
                 try (var document = Loader.loadPDF(bytes)) { pages = document.getNumberOfPages(); }
                 if (pages == 0 || pages > MAX_PAGES) throw new IllegalArgumentException("OCR PDF must contain 1..20 pages");
-            }
+            } else validateImage(bytes);
             if (!available(tesseract, "--version") || (pdf && !available(pdftoppm, "-v"))) {
                 throw new IllegalArgumentException("OCR is unavailable; configure Tesseract and pdftoppm");
             }
@@ -122,6 +127,29 @@ public final class TesseractOcrDocumentExtractor implements DocumentExtractor {
                 }
             }
         } catch (IOException e) { throw new IllegalArgumentException("OCR could not read the document", e); }
+    }
+
+    private static void validateImage(byte[] bytes) throws IOException {
+        // Read frame dimensions from headers, never allocate a decoded raster.
+        try (var input = new MemoryCacheImageInputStream(new ByteArrayInputStream(bytes))) {
+            var readers = ImageIO.getImageReaders(input);
+            if (!readers.hasNext()) throw new IllegalArgumentException("unsupported OCR image format");
+            var reader = readers.next();
+            try {
+                reader.setInput(input, false, true);
+                int frames = reader.getNumImages(true);
+                if (frames < 1 || frames > MAX_PAGES) throw new IllegalArgumentException("OCR image must contain 1..20 frames");
+                long pixels = 0;
+                for (int frame = 0; frame < frames; frame++) {
+                    int width = reader.getWidth(frame), height = reader.getHeight(frame);
+                    pixels += (long) width * height;
+                    if (width < 1 || height < 1 || width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION
+                            || pixels > MAX_IMAGE_PIXELS) {
+                        throw new IllegalArgumentException("OCR image dimensions exceed 10000 pixels per side or 20000000 total pixels");
+                    }
+                }
+            } finally { reader.dispose(); }
+        }
     }
 
     private String run(List<String> command, Path directory, String operation) throws IOException {
