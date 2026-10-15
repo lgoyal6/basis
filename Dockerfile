@@ -1,11 +1,7 @@
-# Two stages, so the image that runs in production does not carry a build toolchain.
-#
-# Railway will also happily build this with Nixpacks and no Dockerfile at all. This exists
-# because the build should be the same everywhere: the jar somebody tests locally, the jar CI
-# publishes on a tag, and the jar that serves traffic are then the same artifact produced the
-# same way, rather than three builds that agree until they do not.
-
-FROM gradle:8.14-jdk21 AS build
+# Builds the Java service and a non-root runtime with local OCR tools.
+# Uses the same Gradle project and document process adapters as local tests.
+# Base digests and OCR package versions are pinned; no remote OCR is configured.
+FROM gradle:8.14-jdk21@sha256:566f76c0c946a2f68e10d4374d61f28ad8411f36f364a41a981ab46ded096d18 AS build
 WORKDIR /src
 # Dependency descriptors first, so a change to a Java file does not re-resolve the whole
 # dependency graph on every deploy.
@@ -19,8 +15,13 @@ COPY config ./config
 # skipped tests would be worse, so the release workflow is what gates the tag.
 RUN gradle --no-daemon bootJar
 
-FROM eclipse-temurin:21-jre AS runtime
+FROM eclipse-temurin:21-jre@sha256:ccbad9e7cb84c27092b12c40a4143e5733e050db9c3784d84f632dcf423fb2ef AS runtime
 WORKDIR /app
+# The document adapter invokes these locally and refuses OCR when they are absent.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        tesseract-ocr=5.5.0-1build1 poppler-utils=26.01.0-2ubuntu0.2 \
+    && rm -rf /var/lib/apt/lists/*
 # Not root. A process that accepts strangers' file uploads should not be able to write to
 # its own installation.
 RUN useradd --create-home --shell /usr/sbin/nologin basis

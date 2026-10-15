@@ -1,3 +1,7 @@
+/* Exposes the authenticated document ingest, review and export API.
+ * Delegates effects to DocumentIngestService, ReviewRepository and the exporter.
+ * Tenant and role checks precede effects; CSV-route errors use a JSON response.
+ */
 package com.basis.documents.api;
 
 import com.basis.documents.application.WorkbenchAuth;
@@ -61,7 +65,10 @@ public final class WorkbenchApiController {
             if (exports == null) throw new IllegalStateException("approved export is unavailable");
             return ResponseEntity.ok().header("Content-Disposition", "attachment; filename=approved-facts.csv")
                     .body(exports.export(principal.tenantId()));
-        } catch (SecurityException e) { return ResponseEntity.status(401).body(Map.of("error", "unauthorized")); }
+        } catch (SecurityException e) {
+            return ResponseEntity.status(401).contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .body(Map.of("error", "unauthorized"));
+        }
     }
 
     @org.springframework.web.bind.annotation.PostMapping(value = "/documents", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
