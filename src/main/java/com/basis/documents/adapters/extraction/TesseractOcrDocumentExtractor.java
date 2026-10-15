@@ -1,3 +1,7 @@
+/* Runs bounded local OCR while retaining page, line and source provenance.
+ * DocumentPipelineService receives raw evidence and explicit numeric candidates.
+ * Candidates need an amount, unit and valid date and still require review.
+ */
 package com.basis.documents.adapters.extraction;
 
 import com.basis.documents.application.DocumentExtractor;
@@ -23,6 +27,10 @@ import org.springframework.stereotype.Component;
 public final class TesseractOcrDocumentExtractor implements DocumentExtractor {
     static final int MAX_BYTES = 50 * 1024 * 1024;
     static final int MAX_PAGES = 20;
+    private static final java.util.regex.Pattern NUMERIC_LINE = java.util.regex.Pattern.compile(
+            "^(REVENUE|COST|ASSETS|CASH|TAX|INCOME|TOTAL REVENUE|NET INCOME|CASH BALANCE|OPERATING COST)\\s*[:=]?\\s*"
+                    + "([+-]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\\.[0-9]+)?)\\s+(USD|EUR|GBP|SHARES)\\s+(\\d{4}-\\d{2}-\\d{2})$",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
     private final String tesseract;
     private final String pdftoppm;
     private final Duration timeout;
@@ -87,6 +95,21 @@ public final class TesseractOcrDocumentExtractor implements DocumentExtractor {
                         if (!value.isEmpty()) fields.add(new ExtractedField(UUID.randomUUID().toString(), "text", value,
                                 null, null, null, null, "page=" + page + ",line=" + line + ",source=" + sourceVersion,
                                 ExtractionMethod.OCR, 400));
+                        // Keep the raw line above. Only explicit values with unit and date
+                        // become numeric candidates, and they still require human review.
+                        var candidate = NUMERIC_LINE.matcher(value);
+                        if (candidate.matches()) {
+                            try {
+                                var period = java.time.LocalDate.parse(candidate.group(4));
+                                String unit = candidate.group(3).toUpperCase(Locale.ROOT);
+                                fields.add(new ExtractedField(UUID.randomUUID().toString(), candidate.group(1).toUpperCase(Locale.ROOT),
+                                        candidate.group(2), "SHARES".equals(unit) ? "SHARES" : "MONETARY", "SHARES".equals(unit) ? null : unit,
+                                        null, period, "page=" + page + ",line=" + line + ",source=" + sourceVersion + ",candidate=explicit_numeric",
+                                        ExtractionMethod.OCR, 400));
+                            } catch (java.time.DateTimeException ignored) {
+                                // Invalid date text remains raw evidence, never a guessed date.
+                            }
+                        }
                     }
                     if (pdf) Files.deleteIfExists(image);
                 }

@@ -1,3 +1,7 @@
+/* Checks local OCR provenance, conservative candidates and process failures.
+ * Exercises TesseractOcrDocumentExtractor with real images and small tool controls.
+ * Malformed values stay raw; unavailable or stalled tools cannot pass as extraction.
+ */
 package com.basis.documents.adapters.extraction;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -85,6 +89,33 @@ class TesseractOcrDocumentExtractorTest {
         Files.writeString(tool, "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then exit 0; fi\n" + body + "\n");
         assertThat(tool.toFile().setExecutable(true)).isTrue();
         return tool;
+    }
+
+    @Test void explicitNumericCandidatesRetainRawLinesAndRejectMissingOrInvalidDates() throws Exception {
+        Path tool = tool("printf 'REVENUE: 1,250.50 USD 2025-12-31\\nCOST: 30 EUR 2025-02-30\\nCASH: 50\\nASSETS: 100 SHARES 2024-12-31\\n'");
+        try {
+            var fields = new TesseractOcrDocumentExtractor(tool.toString(), "/missing/pdf")
+                    .extract(new ByteArrayInputStream(new byte[] {1}), "version");
+            assertThat(fields.stream().filter(f -> f.label().equals("text"))).hasSize(4);
+            var numeric = fields.stream().filter(f -> f.periodEnd() != null).toList();
+            assertThat(numeric).hasSize(2);
+            assertThat(numeric.getFirst().rawValue()).isEqualTo("1,250.50");
+            assertThat(numeric.getFirst().currency()).isEqualTo("USD");
+            assertThat(numeric.getFirst().confidencePermille()).isEqualTo(400);
+            assertThat(numeric.getFirst().location()).contains("page=1,line=1,source=version");
+            assertThat(numeric.getLast().unit()).isEqualTo("SHARES");
+            assertThat(numeric.getLast().currency()).isNull();
+        } finally { Files.delete(tool); }
+    }
+
+    @Test void malformedDigitGroupingStaysRawEvidence() throws Exception {
+        Path tool = tool("printf 'REVENUE: 1,,250 USD 2025-12-31\\nCASH: 1,25 USD 2025-12-31\\n'");
+        try {
+            var fields = new TesseractOcrDocumentExtractor(tool.toString(), "/missing/pdf")
+                    .extract(new ByteArrayInputStream(new byte[] {1}), "version");
+            assertThat(fields).hasSize(2);
+            assertThat(fields).allMatch(field -> field.label().equals("text") && field.periodEnd() == null);
+        } finally { Files.delete(tool); }
     }
 
     private static byte[] image(String text) throws Exception {
