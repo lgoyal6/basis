@@ -1,0 +1,8 @@
+# Pins the local OCR-study, retrieval and trace-validation dependencies.
+# Encoder identity and model revision are frozen separately by retrieval_study.
+# Installing these packages does not enable hosted tracing or model calls.
+-r requirements-local-tests.txt
+sentence-transformers==5.1.1
+torch==2.8.0
+transformers==4.57.1
+huggingface-hub==0.35.3
