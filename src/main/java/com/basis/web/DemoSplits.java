@@ -45,6 +45,9 @@ final class DemoSplits implements SplitCalendar {
 
     @Override
     public SplitCoverage coverageBetween(com.basis.domain.Commodity commodity, LocalDate from, LocalDate to) {
+        if (KNOWN.stream().noneMatch(entry -> entry.symbol().equals(commodity.symbol()))) {
+            return SplitCoverage.neverChecked();
+        }
         List<KnownSplit> found = new ArrayList<>();
         for (Entry entry : KNOWN) {
             if (entry.symbol().equals(commodity.symbol())
@@ -53,9 +56,8 @@ final class DemoSplits implements SplitCalendar {
                         entry.denominator(), Instant.EPOCH));
             }
         }
-        // CHECKED even when the list is empty, which is the whole point of the three way
-        // answer. For a demo symbol basis genuinely has looked, so a ratio it cannot match
-        // to a split is a ratio it can rule out, not one it has never examined.
+        // Only symbols represented by the demo's reference history are checked.
+        // Absence from this small sample is not evidence of an empty split history.
         return SplitCoverage.checked(found, Instant.EPOCH);
     }
 }

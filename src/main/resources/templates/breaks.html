@@ -84,7 +84,7 @@
       <div class="bhead">
         <span class="sym" th:text="${b.commodity().symbol()}">AAPL</span>
         <span class="type" th:text="${b.type()}">QUANTITY_MISMATCH</span>
-        <span class="conf" th:text="${b.cause().confident()} ? 'confirmed' : 'suspected'">confirmed</span>
+        <span class="conf" th:text="${b.cause().code() == 'RATIO_WITHOUT_KNOWN_SPLIT' ? 'split ruled out' : (b.cause().confident() ? 'confirmed' : 'suspected')}">confirmed</span>
       </div>
       <p class="numbers">
         Your broker reports <b th:text="${b.brokerQuantity()}">80</b>,
