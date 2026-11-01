@@ -73,8 +73,7 @@ public final class Ambiguities {
             }
             String code = record.cause().code();
             if (!code.equals("UNAPPLIED_SPLIT")
-                    && !code.equals("UNAPPLIED_REVERSE_SPLIT")
-                    && !code.equals("RATIO_WITHOUT_KNOWN_SPLIT")) {
+                    && !code.equals("UNAPPLIED_REVERSE_SPLIT")) {
                 continue;
             }
             ratioOf(record).ifPresent(ratio -> found.add(ask(record, ratio)));
